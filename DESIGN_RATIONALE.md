@@ -169,7 +169,7 @@ use `MemorySegment` access only where `ByteBuffer` cannot go (a single segment
 | **Text transcode** | Java `String` is UTF-16; capnp text is UTF-8. C++ hands out a pointer; Java must copy + transcode — CatRank's JFR profile is 71% `byte[]` churn (d/m), and current `Text.Reader.toString()` even does an extra `byte[]` copy before decoding | API design, not JVM internals: byte-view-first text API (`MemorySegment`/`ByteBuffer` slice, lazy `CharSequence`), `String` only on demand; elide the extra copy |
 | **Native→heap serialization copy** | CarSales bytes +14% under arena (m) | native-aware output: write segments to `FileChannel`/`SocketChannel` directly from the segment, no heap scratch hop |
 | **Reader allocation until Valhalla** | EA fails at factory boundaries (m) | in-place **cursor iteration** for lists now (also the 2014 wish (d)); readers kept immutable, identity-free, factory-constructed so the `value class` flip is localized |
-| **RPC layer doesn't exist** | serialization-only port (d) | build on Loom: virtual-thread-per-call, `CompletableFuture`-based promise pipelining |
+| **RPC layer doesn't exist** | serialization-only port (d) | promise-shaped core on a per-connection serialized executor (the KJ analogue — pipelining can't be blocking-style), Loom at the transport/servant edges, Netty as optional transport SPI; see T8 |
 | **JIT warm-up** | C++ pays no warm-up; benchmarks here exclude it by design | AOT/CDS for short-lived processes; steady-state is the design target |
 
 ## 6. Where the JVM *beats* the C++ reference
@@ -209,8 +209,25 @@ use `MemorySegment` access only where `ByteBuffer` cannot go (a single segment
 - **T7 — Keep the amplification-defense bounds checks on pointer follow**
   (they are cheap relative to what they guard, and they are also what makes
   incremental/streamed reading safe).
-- **T8 — RPC on Loom** when it comes: virtual threads for blocking-style calls,
-  promise pipelining via composed futures.
+- **T8 — RPC: KJ's promises, Loom's threads, Netty optional.** Promise
+  pipelining cannot be expressed in blocking style — awaiting each step inserts
+  a round trip and destroys the "time travel" — so the client API must be
+  promise/pipeline-shaped (`CompletableFuture` + pipelined capability stubs),
+  and the RPC core (question/answer/export tables, E-order delivery, pipeline
+  resolution) must run as a **per-connection serialized executor** (an actor —
+  the true KJ analogue; capability state is not thread-safe and E-order requires
+  ordered delivery, in C++ and here alike). Loom's role is the *edges*, where it
+  beats KJ: transport defaults to blocking JDK channels on virtual threads
+  (zero-dep, AF_UNIX for IPC; no selector/reactor code), and servants/clients
+  may block on promises from any virtual thread — the restriction KJ's
+  top-level-only `wait()` imposes disappears. Netty is an **optional transport
+  module** behind an SPI (TLS/ALPN, backpressure, epoll/io_uring at high
+  connection counts), not the core: it adds a dependency (vs T9), a reactor
+  model at the edge, and `ByteBuf`↔`MemorySegment` friction that risks the
+  native→heap copies T5 exists to avoid. Co-design threading with arena
+  confinement: a confined arena is single-thread-owned, so messages crossing
+  from the connection executor to servant threads need ownership transfer or a
+  shared arena (which pays a liveness CAS per access).
 - **T9 — Zero third-party runtime dependencies** (`java.base` only), preserving
   the tiny-runtime promise.
 
