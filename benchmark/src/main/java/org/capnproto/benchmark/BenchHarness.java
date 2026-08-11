@@ -23,28 +23,44 @@ public class BenchHarness {
 
     static Runner make(String kase, String mode) {
         final Compression comp =
-            mode.equals("bytes-packed") ? Compression.PACKED : Compression.UNCOMPRESSED;
+            mode.startsWith("bytes-packed") ? Compression.PACKED : Compression.UNCOMPRESSED;
         final boolean bytes = mode.startsWith("bytes");
+        final boolean arena = mode.endsWith("-arena");
         switch (kase) {
             case "carsales": {
                 final CarSales tc = new CarSales();
                 return iters -> {
-                    if (bytes) tc.passByBytes(ParkingLot.factory, TotalValue.factory, false, comp, iters);
-                    else       tc.passByObject(ParkingLot.factory, TotalValue.factory, false, comp, iters);
+                    if (arena) {
+                        if (bytes) tc.passByBytesArena(ParkingLot.factory, TotalValue.factory, comp, iters);
+                        else       tc.passByObjectArena(ParkingLot.factory, TotalValue.factory, iters);
+                    } else {
+                        if (bytes) tc.passByBytes(ParkingLot.factory, TotalValue.factory, false, comp, iters);
+                        else       tc.passByObject(ParkingLot.factory, TotalValue.factory, false, comp, iters);
+                    }
                 };
             }
             case "catrank": {
                 final CatRank tc = new CatRank();
                 return iters -> {
-                    if (bytes) tc.passByBytes(SearchResultList.factory, SearchResultList.factory, false, comp, iters);
-                    else       tc.passByObject(SearchResultList.factory, SearchResultList.factory, false, comp, iters);
+                    if (arena) {
+                        if (bytes) tc.passByBytesArena(SearchResultList.factory, SearchResultList.factory, comp, iters);
+                        else       tc.passByObjectArena(SearchResultList.factory, SearchResultList.factory, iters);
+                    } else {
+                        if (bytes) tc.passByBytes(SearchResultList.factory, SearchResultList.factory, false, comp, iters);
+                        else       tc.passByObject(SearchResultList.factory, SearchResultList.factory, false, comp, iters);
+                    }
                 };
             }
             case "eval": {
                 final Eval tc = new Eval();
                 return iters -> {
-                    if (bytes) tc.passByBytes(Expression.factory, EvaluationResult.factory, false, comp, iters);
-                    else       tc.passByObject(Expression.factory, EvaluationResult.factory, false, comp, iters);
+                    if (arena) {
+                        if (bytes) tc.passByBytesArena(Expression.factory, EvaluationResult.factory, comp, iters);
+                        else       tc.passByObjectArena(Expression.factory, EvaluationResult.factory, iters);
+                    } else {
+                        if (bytes) tc.passByBytes(Expression.factory, EvaluationResult.factory, false, comp, iters);
+                        else       tc.passByObject(Expression.factory, EvaluationResult.factory, false, comp, iters);
+                    }
                 };
             }
             default:

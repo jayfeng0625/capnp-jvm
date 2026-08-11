@@ -77,6 +77,73 @@ public abstract class TestCase<RequestFactory extends
         }
     }
 
+    // Like passByObject with no-reuse, but message memory lives off-heap in an
+    // FFM Arena that is freed deterministically at the end of each iteration.
+    public void passByObjectArena(RequestFactory requestFactory, ResponseFactory responseFactory,
+                                  long iters) {
+        Common.FastRand rng = new Common.FastRand();
+
+        for (int i = 0; i < iters; ++i) {
+            try (org.capnproto.ArenaAllocator requestAllocator = new org.capnproto.ArenaAllocator();
+                 org.capnproto.ArenaAllocator responseAllocator = new org.capnproto.ArenaAllocator()) {
+                MessageBuilder requestMessage = new MessageBuilder(requestAllocator);
+                MessageBuilder responseMessage = new MessageBuilder(responseAllocator);
+                RequestBuilder request = requestMessage.initRoot(requestFactory);
+                Expectation expected = this.setupRequest(rng, request);
+                ResponseBuilder response = responseMessage.initRoot(responseFactory);
+                this.handleRequest(requestFactory.asReader(request), response);
+                if (!this.checkResponse(responseFactory.asReader(response), expected)) {
+                    System.out.println("mismatch!");
+                }
+            }
+        }
+    }
+
+    // Like passByBytes with no-reuse, but builder message memory lives off-heap
+    // in an FFM Arena freed at the end of each iteration. (The serialized bytes
+    // and the read-side messages still use the heap scratch buffers.)
+    public void passByBytesArena(RequestFactory requestFactory, ResponseFactory responseFactory,
+                                 Compression compression, long iters) throws IOException {
+        ByteBuffer requestBytes = ByteBuffer.allocate(SCRATCH_SIZE * 8);
+        ByteBuffer responseBytes = ByteBuffer.allocate(SCRATCH_SIZE * 8);
+        Common.FastRand rng = new Common.FastRand();
+
+        for (int i = 0; i < iters; ++i) {
+            try (org.capnproto.ArenaAllocator requestAllocator = new org.capnproto.ArenaAllocator();
+                 org.capnproto.ArenaAllocator responseAllocator = new org.capnproto.ArenaAllocator()) {
+                MessageBuilder requestMessage = new MessageBuilder(requestAllocator);
+                MessageBuilder responseMessage = new MessageBuilder(responseAllocator);
+                RequestBuilder request = requestMessage.initRoot(requestFactory);
+                Expectation expected = this.setupRequest(rng, request);
+                ResponseBuilder response = responseMessage.initRoot(responseFactory);
+
+                {
+                    org.capnproto.ArrayOutputStream writer = new org.capnproto.ArrayOutputStream(requestBytes);
+                    compression.writeBuffered(writer, requestMessage);
+                }
+
+                {
+                    org.capnproto.MessageReader messageReader =
+                        compression.newBufferedReader(new org.capnproto.ArrayInputStream(requestBytes));
+                    this.handleRequest(messageReader.getRoot(requestFactory), response);
+                }
+
+                {
+                    org.capnproto.ArrayOutputStream writer = new org.capnproto.ArrayOutputStream(responseBytes);
+                    compression.writeBuffered(writer, responseMessage);
+                }
+
+                {
+                    org.capnproto.MessageReader messageReader =
+                        compression.newBufferedReader(new org.capnproto.ArrayInputStream(responseBytes));
+                    if (!this.checkResponse(messageReader.getRoot(responseFactory), expected)) {
+                        throw new Error("incorrect response");
+                    }
+                }
+            }
+        }
+    }
+
     public void passByBytes(RequestFactory requestFactory, ResponseFactory responseFactory,
                             boolean reuse, Compression compression, long iters) throws IOException {
 

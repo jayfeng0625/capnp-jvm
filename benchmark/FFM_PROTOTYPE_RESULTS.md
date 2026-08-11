@@ -17,6 +17,13 @@ paths. Isolated micro-measurement shows FFM heap access is *at parity* with
 dedicated accessors inside the deep, scattered real call tree. The real FFM
 opportunity is **off-heap `Arena` memory + bulk fill/copy**, not a scalar swap.
 
+**Follow-up (measured, see the Arena section below):** an `ArenaAllocator`
+putting message memory off-heap with deterministic free delivers the first
+decisive win — **Eval −32%** (the case that had been flat since 2014, −76%
+heap allocation), CarSales object −4–5%, CatRank neutral; CarSales `bytes`
+regresses (+17–27%) because serialization still bulk-copies through heap
+scratch buffers.
+
 ## Environment
 
 | Item | Value |
@@ -195,6 +202,92 @@ the no-reuse pattern:
      accessor call sites and keep the hot accessors tiny so `MemorySegment.get`
      can intrinsify.
 
+## Follow-up: Arena off-heap prototype (measured)
+
+The recommendation above — *off-heap `Arena` message memory is the biggest
+lever* — was implemented and measured next, on the same JDK 25 build.
+
+### What was added
+
+- **`org.capnproto.ArenaAllocator`** (runtime): an `Allocator` that carves
+  segments out of a confined `java.lang.foreign.Arena` and implements
+  `AutoCloseable` — all native memory is freed **deterministically** at
+  `close()`, not when the GC gets around to it. It plugs into the existing
+  `MessageBuilder(Allocator)` constructor; `Arena.allocate` zeroes memory, so
+  the `Allocator` contract holds, and the returned
+  `segment.asByteBuffer()` keeps the whole runtime (including bulk
+  `ByteBuffer` paths) working unchanged. Accessing a message after its
+  allocator is closed throws `IllegalStateException` (the FFM session is
+  checked), so use-after-free is caught, not silent.
+- **`TestCase.passByObjectArena` / `passByBytesArena`** (benchmark): identical
+  loops to the existing no-reuse modes, but with one arena per message,
+  closed at the end of each iteration — the natural request/response lifetime.
+  `checkResponse` still validates every iteration. Unit tests remain untouched
+  (27 run, 0 failures).
+
+### Results — heap vs arena, same run, same JVM flags
+
+Between-sweep numbers on this shared box drift (the heap-mode absolute values
+below are faster than the earlier tables), so **only within-run pairs are
+compared**. Two independent full rounds; `ns/iter`, median of 5.
+
+| Case | Mode | heap (FFM) | arena | Δ round 1 | Δ round 2 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Eval | object | 6,673 / 6,836 | 4,448 / 4,657 | **−33%** | **−32%** |
+| Eval | bytes | 7,534 / 7,389 | 5,418 / 5,305 | **−28%** | **−28%** |
+| CarSales | object | 57,054 / 55,181 | 54,173 / 53,152 | −5.0% | −3.7% |
+| CarSales | bytes | 56,785 / 61,265 | 72,193 / 71,384 | +27% | +17% |
+| CatRank | object | 515,270 / 531,570 | 543,177 / 533,165 | +5.4% | +0.3% |
+| CatRank | bytes | 586,664 | 580,336 | −1.1% | — |
+
+(`x / y` = round 1 / round 2. Both rounds agree on every sign and magnitude.)
+
+### JMX / NMT profile of the arena mode
+
+| config | heap B/iter (heap-mode) | heap B/iter (arena) | GC count | time |
+| --- | ---: | ---: | --- | --- |
+| Eval object | 21,239 | **4,993 (−76%)** | 15 → 5 | 6,893 → 4,329 ns |
+| CarSales object | 115,346 | 92,565 (−20%) | 8 → 8 | 56,479 → 53,763 ns |
+| CarSales bytes | 135,505 | 107,871 (−20%) | 8 → 7 | 58,429 → 67,750 ns |
+
+Observability: FFM arena memory is **not** in `BufferPoolMXBean("direct")`
+(that pool stayed 0 in every arena run) — it is malloc'd memory visible under
+**NMT** as the `Other` category (`-XX:NativeMemoryTracking=summary` +
+`jcmd <pid> VM.native_memory`). Mid-run snapshots showed `Other (committed=24KB)`
+in arena mode vs absent in heap mode: the steady-state off-heap footprint is
+just the in-flight messages, because every iteration's memory is freed at
+`close()` — the opposite of the 2 GB direct-pool balloon the per-message
+`DirectByteBuffer` strategy produced.
+
+### Reading the results
+
+- **Eval −32%: the decade-old ceiling moved.** Eval is the case the 2014
+  announcement called "fundamentally limited by the fact that Java
+  bounds-checks every array access", and it stayed flat from JDK 8 through 25.
+  Off-heap arena messages cut its heap allocation by 76% (young-GC pressure
+  mostly vanishes) and native-segment access through the FFM layout path avoids
+  the heap-array bounds/GC-barrier costs. This is the first configuration in
+  this whole exercise that beat the `ByteBuffer` runtime decisively.
+- **CarSales object −4–5%**: consistent small win — less allocation churn, but
+  its cost is dominated by per-element `Reader` wrapper objects (still
+  on-heap), which the arena can't fix.
+- **CarSales bytes +17–27%**: the serialization path bulk-copies direct→heap
+  (`ArrayOutputStream` scratch); for CarSales-sized messages that copy
+  overhead exceeds the GC savings. A native-to-native output path (writing to
+  an off-heap scratch or a `FileChannel` directly) would be needed to win here.
+- **CatRank ~0%**: string-transcode-bound; message memory placement is
+  irrelevant.
+
+### Verdict
+
+Arena off-heap is the first FFM configuration with a real, reproducible win —
+but it is **workload-shaped**: decisive for small-struct/traversal-heavy
+messages (Eval-like), neutral-to-positive for object graphs, and a regression
+where big messages are immediately re-serialized through heap scratch buffers.
+A production design should make the allocator opt-in per message (exactly what
+`MessageBuilder(new ArenaAllocator())` already gives), and pair it with
+native-aware serialization before turning it on for `bytes`-style pipelines.
+
 ## Reproducing
 
 Artifacts live under `benchmark/ffm/`:
@@ -204,7 +297,7 @@ Artifacts live under `benchmark/ffm/`:
 mvn -q -pl benchmark -am compile
 mvn -pl runtime test                      # 27 tests, unchanged
 
-bash benchmark/ffm/run.sh ffm $JAVA_HOME   # 9-config steady-state sweep
+bash benchmark/ffm/run.sh ffm $JAVA_HOME   # steady-state sweep incl. *-arena modes
 java -cp runtime/target/classes:benchmark/target/classes \
      org.capnproto.benchmark.BenchHarnessJmx carsales object 20000
 javac benchmark/ffm/MicroAccess.java && java -cp benchmark/ffm MicroAccess

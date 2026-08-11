@@ -21,27 +21,14 @@ public class BenchHarnessJmx {
     interface Runner { void run(long iters) throws Exception; }
 
     static Runner make(String kase, String mode) {
-        final Compression comp =
-            mode.equals("bytes-packed") ? Compression.PACKED : Compression.UNCOMPRESSED;
-        final boolean bytes = mode.startsWith("bytes");
-        switch (kase) {
-            case "carsales": {
-                final CarSales tc = new CarSales();
-                return iters -> { if (bytes) tc.passByBytes(ParkingLot.factory, TotalValue.factory, false, comp, iters);
-                                  else       tc.passByObject(ParkingLot.factory, TotalValue.factory, false, comp, iters); };
+        // Reuse BenchHarness's runner factory (supports the *-arena modes too).
+        return iters -> {
+            try {
+                BenchHarness.make(kase, mode).run(iters);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             }
-            case "catrank": {
-                final CatRank tc = new CatRank();
-                return iters -> { if (bytes) tc.passByBytes(SearchResultList.factory, SearchResultList.factory, false, comp, iters);
-                                  else       tc.passByObject(SearchResultList.factory, SearchResultList.factory, false, comp, iters); };
-            }
-            case "eval": {
-                final Eval tc = new Eval();
-                return iters -> { if (bytes) tc.passByBytes(Expression.factory, EvaluationResult.factory, false, comp, iters);
-                                  else       tc.passByObject(Expression.factory, EvaluationResult.factory, false, comp, iters); };
-            }
-            default: throw new IllegalArgumentException("unknown case: " + kase);
-        }
+        };
     }
 
     static long directPoolUsed() {
