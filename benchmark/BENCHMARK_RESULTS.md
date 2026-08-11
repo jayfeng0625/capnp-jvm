@@ -110,7 +110,13 @@ unchanged on JDK 25). Command: `./do_benchmarks.bash` with JDK 25 first on `PATH
 | client+server · none | 2m07.076s | 35.311s | 1m33.458s |
 | client+server · packed | 2m26.452s | 54.522s | 1m36.085s |
 
-## JDK 21 vs JDK 25
+## JDK 21 vs JDK 25 (single-shot)
+
+> **Superseded for the JDK comparison by the repeated-runs section below.** These
+> are one invocation per row; the `CarSales · object` +22.8% below is a cold-start
+> `sys` outlier — with 5 reps and medians, JDK 25 is in fact ~4.5% *faster* than
+> JDK 21 on that config. The single-shot tables are kept for the full 5-mode
+> record (including pipe modes); use the repeated section for cross-JDK claims.
 
 In-process modes only (the pipe rows are dominated by container FIFO `sys` time
 and are not a meaningful cross-JDK signal). `real` seconds; ratio = JDK25 / JDK21,
@@ -143,6 +149,92 @@ the JDK 8 -> 17 era and are already baked into the JDK 21 numbers. JDK 21 -> 25
 does not change the workload's fundamentals (per-member reader allocation,
 `ByteBuffer` bounds-checking), so the timings hold flat. A `MemorySegment`/FFM
 runtime, not a newer JDK, is what would move these numbers.
+
+## Statistically solid comparison: 2014 vs JDK 21 vs JDK 25 (repeated runs)
+
+To turn the single-shot numbers into something defensible, each in-process config
+was measured with **5 timed repetitions plus 1 discarded warm-up run**, one fresh
+JVM per rep (matching `do_benchmarks.bash` and the 2014 setup — no in-JVM
+iteration averaging). Pipe/client+server modes are excluded: their wall time is
+dominated by container FIFO `sys` overhead, not JDK behaviour. Raw per-rep data is
+in [`jdk-comparison-raw.csv`](jdk-comparison-raw.csv). We report the **median**
+(robust to the occasional cold-start spike) alongside spread.
+
+### Per-config distribution (real seconds, n=5)
+
+| Case | Mode | JDK | median | min | max | CV% |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| CarSales | object | 21 | 6.12 | 6.02 | 6.97 | 5.5 |
+| CarSales | object | 25 | 5.84 | 5.78 | 6.13 | 2.2 |
+| CarSales | bytes | 21 | 7.25 | 7.14 | 7.62 | 2.4 |
+| CarSales | bytes | 25 | 6.85 | 6.67 | 7.09 | 2.0 |
+| CarSales | bytes packed | 21 | 17.45 | 16.32 | 18.07 | 4.1 |
+| CarSales | bytes packed | 25 | 16.56 | 16.18 | 17.06 | 1.8 |
+| CatRank | object | 21 | 6.34 | 6.14 | 6.90 | 4.1 |
+| CatRank | object | 25 | 6.22 | 6.10 | 6.47 | 2.2 |
+| CatRank | bytes | 21 | 7.23 | 7.21 | 7.76 | 3.2 |
+| CatRank | bytes | 25 | 7.00 | 6.80 | 10.63 | 19.0 |
+| CatRank | bytes packed | 21 | 14.83 | 14.42 | 16.80 | 5.7 |
+| CatRank | bytes packed | 25 | 14.71 | 14.62 | 15.28 | 1.8 |
+| Eval | object | 21 | 13.32 | 12.55 | 13.60 | 2.7 |
+| Eval | object | 25 | 12.79 | 12.43 | 14.62 | 7.0 |
+| Eval | bytes | 21 | 14.30 | 13.98 | 15.11 | 2.8 |
+| Eval | bytes | 25 | 15.01 | 14.66 | 16.20 | 3.7 |
+| Eval | bytes packed | 21 | 31.02 | 30.75 | 31.22 | 0.5 |
+| Eval | bytes packed | 25 | 29.93 | 29.28 | 30.03 | 1.0 |
+
+Most configs sit at CV 1–6% — the medians are stable. The two higher-CV cells
+(CatRank bytes JDK 25 at 19%, Eval object JDK 25 at 7%) each come from a single
+cold-start spike in one rep; the median is unaffected, which is the whole point of
+using it.
+
+### Cross-era comparison (medians, real seconds)
+
+`25/21 < 1` means JDK 25 is faster; `2014/JDKxx` is how many times faster than the
+2014 Java run (the announcement's chart values, in-process modes, +/-~0.3s read error).
+
+| Case | Mode | 2014 | JDK 21 | JDK 25 | 25/21 | 21 vs 2014 | 25 vs 2014 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CarSales | object | ~9.1 | 6.12 | 5.84 | 0.955 | 1.49x | 1.56x |
+| CarSales | bytes | ~9.4 | 7.25 | 6.85 | 0.945 | 1.30x | 1.37x |
+| CarSales | bytes packed | ~21.5 | 17.45 | 16.56 | 0.949 | 1.23x | 1.30x |
+| CatRank | object | ~15.5 | 6.34 | 6.22 | 0.981 | 2.44x | 2.49x |
+| CatRank | bytes | ~16.2 | 7.23 | 7.00 | 0.968 | 2.24x | 2.31x |
+| CatRank | bytes packed | ~24.5 | 14.83 | 14.71 | 0.992 | 1.65x | 1.67x |
+| Eval | object | ~13.3 | 13.32 | 12.79 | 0.960 | 1.00x | 1.04x |
+| Eval | bytes | ~14.3 | 14.30 | 15.01 | 1.049 | 1.00x | 0.95x |
+| Eval | bytes packed | ~34.0 | 31.02 | 29.93 | 0.965 | 1.10x | 1.14x |
+
+**Geometric means across the 9 in-process configs:**
+
+- **JDK 25 / JDK 21 = 0.973** — JDK 25 is ~2.7% faster than JDK 21, consistently
+  (8 of 9 configs at or below 1.0; only `Eval · bytes` is marginally slower and is
+  within its own run-to-run spread). Small, but now a real and repeatable
+  direction rather than the single-shot noise.
+- **JDK 21 is 1.42x** and **JDK 25 is 1.46x** faster than the 2014 Java run,
+  averaged across configs.
+
+### What the numbers say
+
+- **The single-shot "+22.8% CarSales regression" was an artifact.** On medians,
+  JDK 25 CarSales object (5.84s) is ~4.5% *faster* than JDK 21 (6.12s). Repeated
+  measurement flips the sign — the original spike was cold-start `sys` contention.
+- **JDK 21 -> 25 gives a small, uniform gain (~3%)**, not the step-changes seen
+  across JDK 8 -> 17. Expected: the workload's fundamentals (per-member reader
+  allocation, `ByteBuffer` bounds-checks) are unchanged between these releases.
+- **The generational gain concentrates exactly where the 2014 announcement said
+  the bottlenecks were**, and repeated runs confirm the ranking:
+  - **CatRank ~2.3–2.5x** (string-bound; compact strings + UTF intrinsics).
+  - **CarSales ~1.3–1.6x** (allocation-bound; JIT escape-analysis + GC).
+  - **Eval ~1.0x, basically at 2014 parity** (`Eval · bytes` is even 0.95x, i.e.
+    marginally slower than 2014 within read error) — strong confirmation of the
+    announcement's "fundamentally limited by array bounds-checking" claim: a decade
+    of JDK work barely moved it, and neither does JDK 25.
+
+The takeaway for `poc/ffm-and-bench`: newer JDKs are near the ceiling for this
+`ByteBuffer` runtime (~3% left on the table from JDK 21 -> 25, ~0% for Eval). The
+remaining headroom — eliminating reader allocations, encoding copies, and
+bounds-checks — needs a `MemorySegment`/FFM runtime, not a newer JVM.
 
 ## Comparison against the 2014 announcement
 
