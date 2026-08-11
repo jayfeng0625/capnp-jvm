@@ -11,7 +11,7 @@ changes to the benchmark or runtime code. This captures the current
 | Date | 2026-08-11 |
 | CPU | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 vCPUs |
 | Memory | 15 GiB |
-| JDK | OpenJDK 21.0.10 (64-Bit Server VM) |
+| JDK | OpenJDK 21.0.10 and 25.0.3 (64-Bit Server VM) — two runs on the same box |
 | Cap'n Proto | 1.0.1 |
 | capnproto-java | 0.1.17-SNAPSHOT |
 | Runtime | `ByteBuffer`-backed (current `master`) |
@@ -32,7 +32,7 @@ All runs use `no-reuse` (fresh allocation each iteration). Timings are wall-cloc
 `real` time from the shell `time` builtin. For the client+server rows the reported
 time covers the whole `client | server` pipeline.
 
-## Results
+## Results — JDK 21
 
 ### CarSales — 100,000 iterations
 
@@ -73,6 +73,76 @@ time covers the whole `client | server` pipeline.
   affected because of its very high iteration count (2M) over a FIFO.
 - Numbers include JVM startup and JIT warm-up (each row is a fresh `java`
   invocation); they are indicative, not steady-state throughput measurements.
+
+## Results — JDK 25
+
+Third dataset: the identical suite re-run on OpenJDK 25.0.3, same box, same
+already-compiled classes (the benchmark targets bytecode release 8, so it runs
+unchanged on JDK 25). Command: `./do_benchmarks.bash` with JDK 25 first on `PATH`.
+
+### CarSales — 100,000 iterations
+
+| Mode | real | user | sys |
+| --- | --- | --- | --- |
+| object · none | 7.279s | 6.150s | 1.660s |
+| bytes · none | 6.875s | 7.495s | 0.322s |
+| bytes · packed | 17.316s | 18.116s | 0.217s |
+| client+server · none | 15.815s | 10.263s | 8.196s |
+| client+server · packed | 21.850s | 20.580s | 4.949s |
+
+### CatRank — 10,000 iterations
+
+| Mode | real | user | sys |
+| --- | --- | --- | --- |
+| object · none | 6.102s | 7.216s | 0.234s |
+| bytes · none | 7.132s | 8.307s | 0.274s |
+| bytes · packed | 14.400s | 16.460s | 0.200s |
+| client+server · none | 10.891s | 11.049s | 3.394s |
+| client+server · packed | 14.990s | 20.522s | 1.849s |
+
+### Eval — 2,000,000 iterations
+
+| Mode | real | user | sys |
+| --- | --- | --- | --- |
+| object · none | 13.166s | 12.753s | 1.209s |
+| bytes · none | 14.320s | 15.173s | 0.411s |
+| bytes · packed | 30.559s | 31.391s | 0.325s |
+| client+server · none | 2m07.076s | 35.311s | 1m33.458s |
+| client+server · packed | 2m26.452s | 54.522s | 1m36.085s |
+
+## JDK 21 vs JDK 25
+
+In-process modes only (the pipe rows are dominated by container FIFO `sys` time
+and are not a meaningful cross-JDK signal). `real` seconds; ratio = JDK25 / JDK21,
+so `<1` means JDK 25 is faster.
+
+| Case / mode | JDK 21 | JDK 25 | Ratio | Δ% |
+| --- | ---: | ---: | ---: | ---: |
+| CarSales · object | 5.93s | 7.28s | 1.228 | +22.8% (noise, see below) |
+| CarSales · bytes | 7.17s | 6.88s | 0.959 | -4.1% |
+| CarSales · bytes packed | 16.25s | 17.32s | 1.066 | +6.6% |
+| CatRank · object | 6.28s | 6.10s | 0.972 | -2.8% |
+| CatRank · bytes | 7.56s | 7.13s | 0.944 | -5.6% |
+| CatRank · bytes packed | 14.31s | 14.40s | 1.006 | +0.6% |
+| Eval · object | 13.18s | 13.17s | 0.999 | -0.1% |
+| Eval · bytes | 13.85s | 14.32s | 1.034 | +3.4% |
+| Eval · bytes packed | 30.69s | 30.56s | 0.996 | -0.4% |
+
+**Conclusion: no meaningful change between JDK 21 and JDK 25 for this workload.**
+The differences scatter within roughly ±6% in both directions, which is
+run-to-run noise for single-shot measurements (one JVM invocation per row, on a
+shared container), not a real signal. The `CarSales · object` +22.8% outlier is a
+one-off: that single invocation had elevated `sys` time (1.66s vs 0.74s on JDK
+21), i.e. transient system contention rather than a code path regression — its
+`user` time (6.15s vs 5.64s) moved far less.
+
+This is the expected result. The large generational gains this benchmark is
+sensitive to — compact strings and UTF transcode intrinsics (CatRank), JIT
+escape-analysis and young-gen GC for reader-object churn (CarSales) — landed in
+the JDK 8 -> 17 era and are already baked into the JDK 21 numbers. JDK 21 -> 25
+does not change the workload's fundamentals (per-member reader allocation,
+`ByteBuffer` bounds-checking), so the timings hold flat. A `MemorySegment`/FFM
+runtime, not a newer JDK, is what would move these numbers.
 
 ## Comparison against the 2014 announcement
 
