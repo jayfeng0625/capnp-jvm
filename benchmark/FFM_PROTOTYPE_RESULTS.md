@@ -288,6 +288,101 @@ A production design should make the allocator opt-in per message (exactly what
 `MessageBuilder(new ArenaAllocator())` already gives), and pair it with
 native-aware serialization before turning it on for `bytes`-style pipelines.
 
+## Follow-up 2: does the bounds-check-elimination technique help? (No — for this access shape)
+
+Two questions were raised against the results above: (a) can the known
+`MemorySegment.ofAddress(addr).reinterpret(size)` trick recover the scalar
+regression, and (b) is the arena win actually about *access* or about
+*allocation*? Both were measured.
+
+### Background (JDK 25 FFM status, cited)
+
+- FFM is **final since JDK 22 (JEP 454)** after three previews (424/434/442);
+  JDK 25 ships it as stable non-preview `java.lang.foreign` in `java.base`. The
+  only later change is governance: **JEP 472 (JDK 24)** put JNI and FFM under
+  `--enable-native-access` (warn by default), and **JEP 471/498** deprecate and
+  now warn on `sun.misc.Unsafe` memory access (JDK 26+ will throw). JDK 25 is
+  therefore the sanctioned point to migrate off `Unsafe`/`ByteBuffer` internals
+  onto `MemorySegment`. *Note:* capnproto-java uses public `ByteBuffer`, **not**
+  `Unsafe`, so it is not under the JEP 498 removal pressure — the motivation here
+  is performance, not forced migration.
+  ([openjdk.org/jeps/498](https://openjdk.org/jeps/498),
+  [nipafx.dev/jni-restriction](https://nipafx.dev/jni-restriction/))
+- Every `MemorySegment` access checks bounds, liveness, alignment and
+  read-only-ness — checks `Unsafe` skips. Cimadamore/Minborg (*"FFM vs. Unsafe.
+  Safety (Sometimes) Has a Cost"*, Inside.java, 2025-06-12) measure a single
+  stray FFM read at **1.482 ns/op vs 0.569 for `Unsafe` (~3×)**, but note the
+  cost **amortizes in loops** — *"between 10 and 100 iterations to break even in
+  the read case"* — because C2 hoists the checks out of the loop once it can
+  prove the segment's size, e.g. via `ofAddress(addr).reinterpret(constSize)`.
+  ([inside.java/2025/06/12/ffm-vs-unsafe](https://inside.java/2025/06/12/ffm-vs-unsafe/))
+
+The operative caveat is *"in loops."* Cap'n Proto reads a handful of fixed-offset
+fields per struct (a single aligned load each) — there is **no per-segment loop**
+to hoist the checks out of.
+
+### Microbench: `benchmark/ffm/MicroAccessNative.java`
+
+A cap'n-proto-shaped *scattered* pattern — 8 int + 4 long reads per "struct" at
+fixed offsets — on a **native** segment, comparing a field-sourced segment
+against per-access `ofAddress(addr).reinterpret(size)` (run with
+`--enable-native-access=ALL-UNNAMED`):
+
+| accessor | ns/struct |
+| --- | ---: |
+| direct `ByteBuffer` | ~4.1 |
+| `MemorySegment` field `.get` | ~6.0 |
+| `MemorySegment` `ofAddress().reinterpret(const)` | ~5.9–6.0 |
+| `MemorySegment` `ofAddress().reinterpret(size field)` | ~5.9–6.0 |
+
+**The `reinterpret` trick makes no difference here, and `MemorySegment` is ~46%
+slower than `ByteBuffer` for scattered reads.** With no loop to hoist out of,
+there is nothing to amortize — exactly the boundary case the Inside.java
+break-even implies. This is the mechanism behind the macro `object`-mode
+regression, now confirmed directly.
+
+### The arena win is allocation, not access — so pair it with `ByteBuffer` access
+
+Isolating the access path on the arena runs (revert the 7 accessor files to
+pre-FFM `ByteBuffer` access, keep `ArenaAllocator` + release-25 pom;
+`benchmark/ffm/raw-arena-access-comparison.txt`):
+
+| config | MS access + arena | **BB access + arena** | heap alloc (BB+arena) |
+| --- | ---: | ---: | ---: |
+| Eval object | 4,448 / 4,657 | **4,513** | **2,844 B/iter (−85%)** |
+| Eval bytes | 5,305 / 5,418 | **4,993** | — |
+
+`ByteBuffer` access + `ArenaAllocator` matches or beats the FFM-access arena on
+time **and** allocates even less on the heap (2,844 vs 4,993 B/iter — it never
+builds the per-segment `MemorySegment` wrappers), because the arena's win is
+purely the off-heap deterministic-free allocation, which is **orthogonal to the
+scalar access path**. `ArenaAllocator` itself uses FFM (`Arena`) for the
+off-heap storage but plugs into the **unchanged `ByteBuffer` runtime**.
+
+### Where the rest of the cost lives — Valhalla, not FFM
+
+CarSales `object` barely moves under any variant because its cost is dominated
+by per-element `Reader` **heap wrapper objects** (`new Wheel$Reader(...)` per
+list element — JFR earlier put reader objects at ~47% of allocation), which
+neither FFM storage nor an off-heap arena can remove. `StructReader`
+(`{SegmentReader, int, int, int, short, int}`) is a textbook **value-class**
+candidate: JEP 401 (Value Objects) would let C2 scalarize readers with no
+allocation, but it is a preview targeting **JDK 28** (GA ~March 2027), not
+JDK 25. On JDK 25 that allocation can only be attacked via escape analysis.
+([The Register, 2026-06-15](https://www.theregister.com/2026/06/15/java_jep401_valhalla/))
+
+### Net conclusion
+
+1. **Do not swap scalar field access to `MemorySegment`** — it is ~46% slower
+   for cap'n proto's scattered fixed-offset reads and the `reinterpret`
+   bounds-check-elimination technique does not apply without a per-segment loop.
+2. **Do adopt `ArenaAllocator` (opt-in per message) with the existing
+   `ByteBuffer` runtime** — that is where the measurable win is (Eval −21…−33%,
+   heap allocation −85%, deterministic off-heap free), and it needs no change to
+   the hot accessors.
+3. The remaining `object`-mode ceiling (reader-wrapper allocation) is a
+   **Valhalla / JEP 401** problem, out of reach on JDK 25.
+
 ## Reproducing
 
 Artifacts live under `benchmark/ffm/`:
@@ -302,4 +397,6 @@ java -cp runtime/target/classes:benchmark/target/classes \
      org.capnproto.benchmark.BenchHarnessJmx carsales object 20000
 javac benchmark/ffm/MicroAccess.java && java -cp benchmark/ffm MicroAccess
 javac benchmark/ffm/OffHeapJmx.java  && java -cp benchmark/ffm OffHeapJmx
+javac benchmark/ffm/MicroAccessNative.java \
+  && java --enable-native-access=ALL-UNNAMED -cp benchmark/ffm MicroAccessNative
 ```
