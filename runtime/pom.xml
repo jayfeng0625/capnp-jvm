@@ -71,10 +71,24 @@
         <profile>
             <id>jdk9FF</id>
             <activation>
-                <jdk>(1.8,)</jdk>
+                <jdk>(1.8,21]</jdk>
             </activation>
             <properties>
                 <maven.compiler.release>8</maven.compiler.release>
+            </properties>
+        </profile>
+        <!--
+          The runtime uses the java.lang.foreign (FFM) API for primitive
+          field access, which is a final API since JDK 22 (JEP 454). On
+          JDK 22+ compile at release 25 so java.lang.foreign is visible.
+        -->
+        <profile>
+            <id>jdk22ffm</id>
+            <activation>
+                <jdk>[22,)</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.release>25</maven.compiler.release>
             </properties>
         </profile>
       <profile>

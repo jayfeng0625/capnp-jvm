@@ -46,7 +46,7 @@ public class StructBuilder {
     protected final boolean _getBooleanField(int offset) {
         int bitOffset = offset;
         int position = this.data + (bitOffset / 8);
-        return (this.segment.buffer.get(position) & (1 << (bitOffset % 8))) != 0;
+        return (this.segment.getByte(position) & (1 << (bitOffset % 8))) != 0;
     }
 
     protected final boolean _getBooleanField(int offset, boolean mask) {
@@ -57,8 +57,8 @@ public class StructBuilder {
         int bitOffset = offset;
         byte bitnum = (byte)(bitOffset % 8);
         int position = this.data + (bitOffset / 8);
-        byte oldValue = this.segment.buffer.get(position);
-        this.segment.buffer.put(position,
+        byte oldValue = this.segment.getByte(position);
+        this.segment.putByte(position,
                                 (byte)((oldValue & (~(1 << bitnum))) | (( value ? 1 : 0) << bitnum)));
     }
 
@@ -67,7 +67,7 @@ public class StructBuilder {
     }
 
     protected final byte _getByteField(int offset) {
-        return this.segment.buffer.get(this.data + offset);
+        return this.segment.getByte(this.data + offset);
     }
 
     protected final byte _getByteField(int offset, byte mask) {
@@ -75,7 +75,7 @@ public class StructBuilder {
     }
 
     protected final void _setByteField(int offset, byte value) {
-        this.segment.buffer.put(this.data + offset, value);
+        this.segment.putByte(this.data + offset, value);
     }
 
     protected final void _setByteField(int offset, byte value, byte mask) {
@@ -83,7 +83,7 @@ public class StructBuilder {
     }
 
     protected final short _getShortField(int offset) {
-        return this.segment.buffer.getShort(this.data + offset * 2);
+        return this.segment.getShort(this.data + offset * 2);
     }
 
     protected final short _getShortField(int offset, short mask) {
@@ -91,7 +91,7 @@ public class StructBuilder {
     }
 
     protected final void _setShortField(int offset, short value) {
-        this.segment.buffer.putShort(this.data + offset * 2, value);
+        this.segment.putShort(this.data + offset * 2, value);
     }
 
     protected final void _setShortField(int offset, short value, short mask) {
@@ -99,7 +99,7 @@ public class StructBuilder {
     }
 
     protected final int _getIntField(int offset) {
-        return this.segment.buffer.getInt(this.data + offset * 4);
+        return this.segment.getInt(this.data + offset * 4);
     }
 
     protected final int _getIntField(int offset, int mask) {
@@ -107,7 +107,7 @@ public class StructBuilder {
     }
 
     protected final void _setIntField(int offset, int value) {
-        this.segment.buffer.putInt(this.data + offset * 4, value);
+        this.segment.putInt(this.data + offset * 4, value);
     }
 
     protected final void _setIntField(int offset, int value, int mask) {
@@ -115,7 +115,7 @@ public class StructBuilder {
     }
 
     protected final long _getLongField(int offset) {
-        return this.segment.buffer.getLong(this.data + offset * 8);
+        return this.segment.getLong(this.data + offset * 8);
     }
 
     protected final long _getLongField(int offset, long mask) {
@@ -123,7 +123,7 @@ public class StructBuilder {
     }
 
     protected final void _setLongField(int offset, long value) {
-        this.segment.buffer.putLong(this.data + offset * 8, value);
+        this.segment.putLong(this.data + offset * 8, value);
     }
 
     protected final void _setLongField(int offset, long value, long mask) {
@@ -131,49 +131,49 @@ public class StructBuilder {
     }
 
     protected final float _getFloatField(int offset) {
-        return this.segment.buffer.getFloat(this.data + offset * 4);
+        return this.segment.getFloat(this.data + offset * 4);
     }
 
     protected final float _getFloatField(int offset, int mask) {
         return Float.intBitsToFloat(
-            this.segment.buffer.getInt(this.data + offset * 4) ^ mask);
+            this.segment.getInt(this.data + offset * 4) ^ mask);
     }
 
     protected final void _setFloatField(int offset, float value) {
-        this.segment.buffer.putFloat(this.data + offset * 4, value);
+        this.segment.putFloat(this.data + offset * 4, value);
     }
 
     protected final void _setFloatField(int offset, float value, int mask) {
-        this.segment.buffer.putInt(this.data + offset * 4,
+        this.segment.putInt(this.data + offset * 4,
                                    Float.floatToIntBits(value) ^ mask);
     }
 
     protected final double _getDoubleField(int offset) {
-        return this.segment.buffer.getDouble(this.data + offset * 8);
+        return this.segment.getDouble(this.data + offset * 8);
     }
 
     protected final double _getDoubleField(int offset, long mask) {
         return Double.longBitsToDouble(
-            this.segment.buffer.getLong(this.data + offset * 8) ^ mask);
+            this.segment.getLong(this.data + offset * 8) ^ mask);
     }
 
     protected final void _setDoubleField(int offset, double value) {
-        this.segment.buffer.putDouble(this.data + offset * 8, value);
+        this.segment.putDouble(this.data + offset * 8, value);
     }
 
     protected final void _setDoubleField(int offset, double value, long mask) {
-        this.segment.buffer.putLong(this.data + offset * 8,
+        this.segment.putLong(this.data + offset * 8,
                                     Double.doubleToLongBits(value) ^ mask);
     }
 
     protected final boolean _pointerFieldIsNull(int ptrIndex) {
-        return ptrIndex >= this.pointerCount || this.segment.buffer.getLong((this.pointers + ptrIndex) * Constants.BYTES_PER_WORD) == 0;
+        return ptrIndex >= this.pointerCount || this.segment.getLong((this.pointers + ptrIndex) * Constants.BYTES_PER_WORD) == 0;
     }
 
     protected final void _clearPointerField(int ptrIndex) {
         int pointer = this.pointers + ptrIndex;
         WireHelpers.zeroObject(this.segment, pointer);
-        this.segment.buffer.putLong(pointer * 8, 0L);
+        this.segment.putLong(pointer * 8, 0L);
     }
 
     protected final <T> T _getPointerField(FromPointerBuilder<T> factory, int index) {
@@ -246,7 +246,7 @@ public class StructBuilder {
         for (int ii = 0; ii < this.pointerCount; ++ii) {
             WireHelpers.zeroObject(this.segment, this.pointers + ii);
         }
-        this.segment.buffer.putLong(this.pointers * Constants.BYTES_PER_WORD, 0);
+        this.segment.putLong(this.pointers * Constants.BYTES_PER_WORD, 0);
 
         for (int ii = 0; ii < sharedPointerCount; ++ii) {
             WireHelpers.copyPointer(this.segment,

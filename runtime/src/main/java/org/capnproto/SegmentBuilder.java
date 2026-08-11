@@ -21,6 +21,7 @@
 
 package org.capnproto;
 
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 
 public final class SegmentBuilder extends SegmentReader {
@@ -70,7 +71,32 @@ public final class SegmentBuilder extends SegmentReader {
     }
 
     public final void put(int index, long value) {
-        buffer.putLong(index * Constants.BYTES_PER_WORD, value);
+        this.memory.set(LONG_LE, (long) index * Constants.BYTES_PER_WORD, value);
+    }
+
+    // Byte-offset primitive writers backed by the FFM MemorySegment.
+    public final void putByte(int byteOffset, byte value) {
+        this.memory.set(ValueLayout.JAVA_BYTE, byteOffset, value);
+    }
+
+    public final void putShort(int byteOffset, short value) {
+        this.memory.set(SHORT_LE, byteOffset, value);
+    }
+
+    public final void putInt(int byteOffset, int value) {
+        this.memory.set(INT_LE, byteOffset, value);
+    }
+
+    public final void putLong(int byteOffset, long value) {
+        this.memory.set(LONG_LE, byteOffset, value);
+    }
+
+    public final void putFloat(int byteOffset, float value) {
+        this.memory.set(FLOAT_LE, byteOffset, value);
+    }
+
+    public final void putDouble(int byteOffset, double value) {
+        this.memory.set(DOUBLE_LE, byteOffset, value);
     }
 
     public final void clear() {

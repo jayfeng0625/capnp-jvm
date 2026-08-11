@@ -68,32 +68,32 @@ public class ListReader {
 
     protected boolean _getBooleanElement(int index) {
         long bindex = (long)index * this.step;
-        byte b = this.segment.buffer.get(this.ptr + (int)(bindex / Constants.BITS_PER_BYTE));
+        byte b = this.segment.getByte(this.ptr + (int)(bindex / Constants.BITS_PER_BYTE));
         return (b & (1 << (bindex % 8))) != 0;
     }
 
     protected byte _getByteElement(int index) {
-        return this.segment.buffer.get(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.getByte(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected short _getShortElement(int index) {
-        return this.segment.buffer.getShort(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.getShort(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected int _getIntElement(int index) {
-        return this.segment.buffer.getInt(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.getInt(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected long _getLongElement(int index) {
-        return this.segment.buffer.getLong(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.getLong(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected float _getFloatElement(int index) {
-        return this.segment.buffer.getFloat(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.getFloat(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected double _getDoubleElement(int index) {
-        return this.segment.buffer.getDouble(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.getDouble(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected <T> T _getStructElement(StructReader.Factory<T> factory, int index) {
