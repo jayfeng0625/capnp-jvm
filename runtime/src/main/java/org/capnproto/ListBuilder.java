@@ -52,65 +52,65 @@ public class ListBuilder {
 
     protected boolean _getBooleanElement(int index) {
         long bindex = (long)index * this.step;
-        byte b = this.segment.getByte(this.ptr + (int)(bindex / Constants.BITS_PER_BYTE));
+        byte b = this.segment.buffer.get(this.ptr + (int)(bindex / Constants.BITS_PER_BYTE));
         return (b & (1 << (bindex % 8))) != 0;
     }
 
     protected byte _getByteElement(int index) {
-        return this.segment.getByte(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.buffer.get(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected short _getShortElement(int index) {
-        return this.segment.getShort(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.buffer.getShort(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected int _getIntElement(int index) {
-        return this.segment.getInt(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.buffer.getInt(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected long _getLongElement(int index) {
-        return this.segment.getLong(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.buffer.getLong(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected float _getFloatElement(int index) {
-        return this.segment.getFloat(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.buffer.getFloat(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected double _getDoubleElement(int index) {
-        return this.segment.getDouble(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
+        return this.segment.buffer.getDouble(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE));
     }
 
     protected void _setBooleanElement(int index, boolean value) {
         long bitOffset = (long) index * this.step;
         byte bitnum = (byte)(bitOffset % 8);
         int position = (int)(this.ptr + (bitOffset / 8));
-        byte oldValue = this.segment.getByte(position);
-        this.segment.putByte(position,
+        byte oldValue = this.segment.buffer.get(position);
+        this.segment.buffer.put(position,
                                 (byte)((oldValue & (~(1 << bitnum))) | (( value ? 1 : 0) << bitnum)));
     }
 
     protected void _setByteElement(int index, byte value) {
-        this.segment.putByte(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
+        this.segment.buffer.put(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
     }
 
     protected void _setShortElement(int index, short value) {
-        this.segment.putShort(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
+        this.segment.buffer.putShort(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
     }
 
     protected void _setIntElement(int index, int value) {
-        this.segment.putInt(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
+        this.segment.buffer.putInt(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
     }
 
     protected void _setLongElement(int index, long value) {
-        this.segment.putLong(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
+        this.segment.buffer.putLong(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
     }
 
     protected void _setFloatElement(int index, float value) {
-        this.segment.putFloat(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
+        this.segment.buffer.putFloat(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
     }
 
     protected void _setDoubleElement(int index, double value) {
-        this.segment.putDouble(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
+        this.segment.buffer.putDouble(this.ptr + (int)((long)index * this.step / Constants.BITS_PER_BYTE), value);
     }
 
     protected final <T> T _getStructElement(StructBuilder.Factory<T> factory, int index) {

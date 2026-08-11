@@ -1,0 +1,9 @@
+# CountedLoopAccess (monotonic counted loop, native segment, JDK 25):
+#   BB full=1.56-1.59  MS full=1.55-1.59  ns/record  (PARITY)
+#   BB sum =0.39-0.40  MS sum =0.40       ns/record  (PARITY)
+# MicroValhalla (JDK 27 jep401ea3, reader = StructReader field shape):
+#   factory boundary / EA fails (dontinline):
+#     identity: 6.33-6.42 ns/elem, 40.0 bytes/elem
+#     value   : 2.34-2.40 ns/elem,  0.0 bytes/elem   (~2.7x faster, 0 alloc)
+#   local use / EA succeeds (default inlining):
+#     identity: 0.31-0.32 ns/elem, 0 bytes ; value: 0.31 ns, 0 bytes (equal)

@@ -21,6 +21,21 @@
 
 package org.capnproto;
 
+// PROJECT VALHALLA CANDIDATE (JEP 401, previews in JDK 27-EA / targets JDK 28).
+// This class is a textbook value-class candidate: an immutable "fat pointer" of
+// { reference + 4 int + short } with no identity. A fresh StructReader is
+// allocated on every struct descent and every list-element access (see
+// ListReader._getStructElement -> factory.constructReader -> `new ...Reader`).
+// On JDK 25 those allocations only vanish when escape analysis succeeds, which
+// it does NOT across the polymorphic factory.constructReader(...) boundary.
+//
+// Declaring this `value class` lets the JVM scalarize the reader across that
+// boundary (return it in registers, no heap object). Measured on a JEP 401 EA
+// build (benchmark/ffm/MicroValhalla.java), for a reader of this exact shape
+// constructed across a non-inlined factory call:
+//     identity class : 6.4 ns/element,  40 bytes/element allocated
+//     value class    : 2.4 ns/element,   0 bytes/element  (~2.7x faster, 0 GC)
+// Not available on JDK 25; see benchmark/FFM_PROTOTYPE_RESULTS.md.
 public class StructReader {
     public interface Factory<T> {
         abstract T constructReader(SegmentReader segment, int data, int pointers,
@@ -58,7 +73,7 @@ public class StructReader {
     protected final boolean _getBooleanField(int offset) {
         // XXX should use unsigned operations
         if (offset < this.dataSize) {
-            byte b = this.segment.getByte(this.data + offset / 8);
+            byte b = this.segment.buffer.get(this.data + offset / 8);
 
             return (b & (1 << (offset % 8))) != 0;
         } else {
@@ -72,7 +87,7 @@ public class StructReader {
 
     protected final byte _getByteField(int offset) {
         if ((offset + 1) * 8 <= this.dataSize) {
-            return this.segment.getByte(this.data + offset);
+            return this.segment.buffer.get(this.data + offset);
         } else {
             return 0;
         }
@@ -84,7 +99,7 @@ public class StructReader {
 
     protected final short _getShortField(int offset) {
         if ((offset + 1) * 16 <= this.dataSize) {
-            return this.segment.getShort(this.data + offset * 2);
+            return this.segment.buffer.getShort(this.data + offset * 2);
         } else {
             return 0;
         }
@@ -96,7 +111,7 @@ public class StructReader {
 
     protected final int _getIntField(int offset) {
         if ((offset + 1) * 32 <= this.dataSize) {
-            return this.segment.getInt(this.data + offset * 4);
+            return this.segment.buffer.getInt(this.data + offset * 4);
         } else {
             return 0;
         }
@@ -108,7 +123,7 @@ public class StructReader {
 
     protected final long _getLongField(int offset) {
         if ((offset + 1) * 64 <= this.dataSize) {
-            return this.segment.getLong(this.data + offset * 8);
+            return this.segment.buffer.getLong(this.data + offset * 8);
         } else {
             return 0;
         }
@@ -120,7 +135,7 @@ public class StructReader {
 
     protected final float _getFloatField(int offset) {
         if ((offset + 1) * 32 <= this.dataSize) {
-            return this.segment.getFloat(this.data + offset * 4);
+            return this.segment.buffer.getFloat(this.data + offset * 4);
         } else {
             return 0;
         }
@@ -128,7 +143,7 @@ public class StructReader {
 
     protected final float _getFloatField(int offset, int mask) {
         if ((offset + 1) * 32 <= this.dataSize) {
-            return Float.intBitsToFloat(this.segment.getInt(this.data + offset * 4) ^ mask);
+            return Float.intBitsToFloat(this.segment.buffer.getInt(this.data + offset * 4) ^ mask);
         } else {
             return Float.intBitsToFloat(mask);
         }
@@ -136,7 +151,7 @@ public class StructReader {
 
     protected final double _getDoubleField(int offset) {
         if ((offset + 1) * 64 <= this.dataSize) {
-            return this.segment.getDouble(this.data + offset * 8);
+            return this.segment.buffer.getDouble(this.data + offset * 8);
         } else {
             return 0;
         }
@@ -144,14 +159,14 @@ public class StructReader {
 
     protected final double _getDoubleField(int offset, long mask) {
         if ((offset + 1) * 64 <= this.dataSize) {
-            return Double.longBitsToDouble(this.segment.getLong(this.data + offset * 8) ^ mask);
+            return Double.longBitsToDouble(this.segment.buffer.getLong(this.data + offset * 8) ^ mask);
         } else {
             return Double.longBitsToDouble(mask);
         }
     }
 
     protected final boolean _pointerFieldIsNull(int ptrIndex) {
-        return ptrIndex >= this.pointerCount || this.segment.getLong((this.pointers + ptrIndex) * Constants.BYTES_PER_WORD) == 0;
+        return ptrIndex >= this.pointerCount || this.segment.buffer.getLong((this.pointers + ptrIndex) * Constants.BYTES_PER_WORD) == 0;
     }
 
     protected final <T> T _getPointerField(FromPointerReader<T> factory, int ptrIndex) {

@@ -207,12 +207,12 @@ final class WireHelpers {
                     if (otherSegment.isWritable()) {
                         zeroObject(otherSegment, segment.get(padOffset + 1), FarPointer.positionInSegment(pad));
                     }
-                    segment.putLong(padOffset * 8, 0L);
-                    segment.putLong((padOffset + 1) * 8, 0L);
+                    segment.buffer.putLong(padOffset * 8, 0L);
+                    segment.buffer.putLong((padOffset + 1) * 8, 0L);
 
                 } else {
                     zeroObject(segment, padOffset);
-                    segment.putLong(padOffset * 8, 0L);
+                    segment.buffer.putLong(padOffset * 8, 0L);
                 }
             }
 
@@ -303,9 +303,9 @@ final class WireHelpers {
             SegmentBuilder padSegment = segment.getArena().getSegment(FarPointer.getSegmentId(ref));
             if (padSegment.isWritable()) { //# Don't zero external data.
                 int padOffset = FarPointer.positionInSegment(ref);
-                padSegment.putLong(padOffset * Constants.BYTES_PER_WORD, 0L);
+                padSegment.buffer.putLong(padOffset * Constants.BYTES_PER_WORD, 0L);
                 if (FarPointer.isDoubleFar(ref)) {
-                    padSegment.putLong(padOffset * Constants.BYTES_PER_WORD + 1, 0L);
+                    padSegment.buffer.putLong(padOffset * Constants.BYTES_PER_WORD + 1, 0L);
                 }
             }
         }
@@ -351,8 +351,8 @@ final class WireHelpers {
                                              WirePointer.kind(src), srcTargetOffset);
             }
             // We can just copy the upper 32 bits.
-            dstSegment.putInt(dstOffset * Constants.BYTES_PER_WORD + 4,
-                                     srcSegment.getInt(srcOffset * Constants.BYTES_PER_WORD + 4));
+            dstSegment.buffer.putInt(dstOffset * Constants.BYTES_PER_WORD + 4,
+                                     srcSegment.buffer.getInt(srcOffset * Constants.BYTES_PER_WORD + 4));
 
         } else {
             //# Need to create a far pointer. Try to allocate it in the same segment as the source,
@@ -372,8 +372,8 @@ final class WireHelpers {
                 WirePointer.setKindWithZeroOffset(farSegment.buffer, landingPadOffset + 1,
                                                   WirePointer.kind(src));
 
-                farSegment.putInt((landingPadOffset + 1) * Constants.BYTES_PER_WORD + 4,
-                                         srcSegment.getInt(srcOffset * Constants.BYTES_PER_WORD + 4));
+                farSegment.buffer.putInt((landingPadOffset + 1) * Constants.BYTES_PER_WORD + 4,
+                                         srcSegment.buffer.getInt(srcOffset * Constants.BYTES_PER_WORD + 4));
 
                 FarPointer.set(dstSegment.buffer, dstOffset,
                                true, landingPadOffset);
@@ -383,8 +383,8 @@ final class WireHelpers {
                 //# Simple landing pad is just a pointer.
                 WirePointer.setKindAndTarget(srcSegment.buffer, landingPadOffset,
                                              WirePointer.kind(src), srcTargetOffset);
-                srcSegment.putInt(landingPadOffset * Constants.BYTES_PER_WORD + 4,
-                                         srcSegment.getInt(srcOffset * Constants.BYTES_PER_WORD + 4));
+                srcSegment.buffer.putInt(landingPadOffset * Constants.BYTES_PER_WORD + 4,
+                                         srcSegment.buffer.getInt(srcOffset * Constants.BYTES_PER_WORD + 4));
 
                 FarPointer.set(dstSegment.buffer, dstOffset,
                                false, landingPadOffset);
@@ -825,7 +825,7 @@ final class WireHelpers {
 
         int size = ListPointer.elementCount(resolved.ref);
         if (size == 0 ||
-            resolved.segment.getByte(resolved.ptr * Constants.BYTES_PER_WORD + size - 1) != 0) {
+            resolved.segment.buffer.get(resolved.ptr * Constants.BYTES_PER_WORD + size - 1) != 0) {
             throw new DecodeException("Text blob missing NUL terminator.");
         }
         return new Text.Builder(resolved.segment.buffer, resolved.ptr * Constants.BYTES_PER_WORD,
@@ -1059,7 +1059,7 @@ final class WireHelpers {
         long srcRef = srcSegment.get(srcOffset);
 
         if (WirePointer.isNull(srcRef)) {
-            dstSegment.putLong(dstOffset * 8, 0L);
+            dstSegment.buffer.putLong(dstOffset * 8, 0L);
             return dstSegment;
         }
 
@@ -1321,7 +1321,7 @@ final class WireHelpers {
 
         resolved.segment.arena.checkReadLimit(roundBytesUpToWords(size));
 
-        if (size == 0 || resolved.segment.getByte(8 * resolved.ptr + size - 1) != 0) {
+        if (size == 0 || resolved.segment.buffer.get(8 * resolved.ptr + size - 1) != 0) {
             throw new DecodeException("Message contains text that is not NUL-terminated.");
         }
 
