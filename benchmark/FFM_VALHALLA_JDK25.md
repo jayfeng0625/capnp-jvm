@@ -71,6 +71,25 @@ GC count 15 → 5. Off-heap arena memory is invisible to `BufferPoolMXBean` (nat
 not "direct") and shows only ~24 KB committed under NMT mid-run — the in-flight
 messages, freed each iteration.
 
+### Offset vs the 2014 announcement (fresh-JVM wall, 2M iters — 2014 methodology)
+
+The 2014 alpha-release charts (same iteration counts) are the historical
+baseline. Measured here fresh-JVM with `time` at 2,000,000 iters to match:
+
+| Eval, 2M | 2014 Java | JDK 25 heap | JDK 25 arena | arena / 2014 | arena / heap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| object | ~13.3 s | 14.27 s | **7.65 s** | **1.74×** | **1.87×** |
+| bytes | ~14.3 s | 14.82 s | **10.47 s** | **1.37×** | **1.42×** |
+
+JDK 25 heap ≈ 2014 (0.93–0.96×, flat within read error): Eval is the case the
+2014 announcement called "fundamentally limited by array bounds-checking", and a
+decade of JDK generations did not move it. **`ArenaAllocator` is the first thing
+to move it — ~1.7–1.9× faster than 2014 on `object`** — by removing
+message-buffer allocation/GC churn (not the bounds checks, which remain; hence
+~1.8× not 5×). CarSales/CatRank arena is neutral, so their 2014 offsets are the
+generational ones already in `BENCHMARK_RESULTS.md` (CarSales ~1.3–1.6×, CatRank
+~2.3–2.5×). Shared-box drift is ±~0.5 s.
+
 **Read the split by *what each workload allocates*:**
 
 - **Eval is message-buffer-bound** → the arena moves that memory off-heap and
