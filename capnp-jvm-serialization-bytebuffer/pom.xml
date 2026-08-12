@@ -1,0 +1,29 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.capnproto</groupId>
+        <artifactId>capnproto-java</artifactId>
+        <version>${revision}</version>
+    </parent>
+    <artifactId>capnp-jvm-serialization-bytebuffer</artifactId>
+    <packaging>jar</packaging>
+    <name>Cap'n Proto ByteBuffer serialization</name>
+    <description>capnp-jvm ByteBuffer serialization implementation</description>
+
+    <dependencies>
+        <dependency>
+          <groupId>org.capnproto</groupId>
+          <artifactId>capnp-jvm-core</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>org.capnproto</groupId>
+          <artifactId>capnp-jvm-serialization</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

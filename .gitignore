@@ -6,3 +6,4 @@ project/target
 *.iws
 capnpc-java
 generated/
+.flattened-pom.xml

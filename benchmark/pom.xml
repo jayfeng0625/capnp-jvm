@@ -1,43 +1,25 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
     <modelVersion>4.0.0</modelVersion>
-    <groupId>org.capnproto</groupId>
+    <parent>
+        <groupId>org.capnproto</groupId>
+        <artifactId>capnproto-java</artifactId>
+        <version>${revision}</version>
+    </parent>
     <artifactId>benchmark</artifactId>
     <packaging>jar</packaging>
-    <description>capnproto-java benchmark</description>
-    <version>0.1.17-SNAPSHOT</version>
     <name>capnproto-java benchmark</name>
-    <organization>
-        <name>org.capnproto</name>
-    </organization>
-    <url>https://capnproto.org/</url>
-    <licenses>
-        <license>
-            <name>MIT</name>
-            <url>http://opensource.org/licenses/MIT</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
-    <scm>
-        <url>git@github.com:capnproto/capnproto-java.git</url>
-        <connection>scm:git@github.com:capnproto/capnproto-java.git</connection>
-    </scm>
-    <developers>
-        <developer>
-            <id>dwrensha</id>
-            <name>David Renshaw</name>
-            <url>https://github.com/dwrensha</url>
-        </developer>
-    </developers>
-    <properties>
-      <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-      <maven.compiler.release>25</maven.compiler.release>
-    </properties>
+    <description>capnproto-java benchmark</description>
+
     <dependencies>
         <dependency>
           <groupId>org.capnproto</groupId>
-          <artifactId>runtime</artifactId>
-          <version>0.1.17-SNAPSHOT</version>
+          <artifactId>capnp-jvm-core</artifactId>
+        </dependency>
+
+        <dependency>
+          <groupId>org.capnproto</groupId>
+          <artifactId>capnp-jvm-serialization-bytebuffer</artifactId>
         </dependency>
     </dependencies>
 
@@ -45,7 +27,6 @@
       <plugins>
         <plugin>
           <artifactId>maven-antrun-plugin</artifactId>
-          <version>3.2.0</version>
           <executions>
             <execution>
               <id>generate-sources</id>
@@ -75,7 +56,6 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>build-helper-maven-plugin</artifactId>
-          <version>3.6.1</version>
           <executions>
             <execution>
               <id>add-generated-sources</id>
