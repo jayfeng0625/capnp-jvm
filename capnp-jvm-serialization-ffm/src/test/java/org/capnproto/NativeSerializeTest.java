@@ -275,9 +275,17 @@ public class NativeSerializeTest {
               assertEquals(greeting, message.getRoot(Text.factory).toString());
           }
 
-          // The same bytes, memory-mapped instead of read.
+          // The same bytes, memory-mapped instead of read — and consumed
+          // through the byte-view-first Text API: no String is constructed,
+          // no text bytes are copied out of the mapped pages.
           try (NativeMessage message = NativeSerialize.map(file)) {
-              assertEquals(greeting, message.getRoot(Text.factory).toString());
+              Text.Reader text = message.getRoot(Text.factory);
+              assertTrue(text.contentEquals(greeting));
+              assertTrue(text.contains("native"));
+              assertEquals(-1, text.indexOf("absent"));
+              assertEquals(greeting.length(), text.size()); // ASCII: bytes == chars
+              assertTrue(text.asByteBuffer().isReadOnly());
+              assertEquals(greeting, text.toString()); // String only on demand
           }
       } finally {
           Files.delete(file);
