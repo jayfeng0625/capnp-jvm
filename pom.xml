@@ -14,6 +14,7 @@
       <module>capnp-jvm-core</module>
       <module>capnp-jvm-serialization</module>
       <module>capnp-jvm-serialization-bytebuffer</module>
+      <module>capnp-jvm-serialization-ffm</module>
       <module>compiler</module>
       <module>examples</module>
       <module>benchmark</module>
@@ -78,6 +79,11 @@
         <dependency>
           <groupId>org.capnproto</groupId>
           <artifactId>capnp-jvm-serialization-bytebuffer</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>org.capnproto</groupId>
+          <artifactId>capnp-jvm-serialization-ffm</artifactId>
           <version>${project.version}</version>
         </dependency>
         <dependency>
