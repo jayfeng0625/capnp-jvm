@@ -40,8 +40,62 @@ import java.nio.ByteOrder;
 public final class NativePackedOutputStream implements WritableByteChannel {
 
     private static final long LOW_BITS = 0x0101010101010101L;
+    private static final long HIGH_BITS = 0x8080808080808080L;
     private static final long LOW_SEVEN = 0x7F7F7F7F7F7F7F7FL;
     private static final long MOVE_MASK_MAGIC = 0x0002040810204081L;
+
+    // Long.compress / Long.expand lower to single PEXT / PDEP instructions on
+    // x86-64 with BMI2, and to an SVE2 bit-permute on aarch64 when the VM runs
+    // with UseSVE >= 2. Everywhere else they run a scalar software fallback, so
+    // the shift path (tagOf / compactNonzeroBytes) is faster and avoids the
+    // 64-bit multiply too. The gating VM flags are read reflectively so this
+    // class keeps its java.base-only floor: on a runtime image without
+    // jdk.management the read fails and the ISA decides alone.
+    private static final boolean HAS_FAST_BIT_GATHER = probeFastBitGather();
+
+    private static boolean probeFastBitGather() {
+        return isFastBitGather(System.getProperty("os.arch", ""),
+                               readVmFlag("UseBMI2Instructions") > 0,
+                               readVmFlag("UseSVE"));
+    }
+
+    /**
+     * Whether Long.compress / Long.expand are backed by a hardware bit-gather
+     * on `arch`, given the VM's `useBmi2` (the x86 PEXT / PDEP gate) and
+     * `useSve` (the aarch64 SVE generation; 2 is the first with a bit-permute).
+     */
+    static boolean isFastBitGather(String arch, boolean useBmi2, int useSve) {
+        return switch (arch) {
+            case "amd64", "x86_64" -> useBmi2;
+            case "aarch64" -> useSve >= 2;
+            default -> false;
+        };
+    }
+
+    /**
+     * The value of a HotSpot VM flag as an int (booleans as 0/1), or -1 when it
+     * cannot be read: the flag is absent on this ISA, or jdk.management is not
+     * in the runtime image. Reflection keeps this class compiling and linking
+     * against java.base alone.
+     */
+    private static int readVmFlag(String name) {
+        try {
+            Class<?> factory = Class.forName("java.lang.management.ManagementFactory");
+            Class<?> diagnostic = Class.forName("com.sun.management.HotSpotDiagnosticMXBean");
+            Object bean = factory.getMethod("getPlatformMXBean", Class.class)
+                .invoke(null, diagnostic);
+            Object option = diagnostic.getMethod("getVMOption", String.class)
+                .invoke(bean, name);
+            String value = (String) option.getClass().getMethod("getValue").invoke(option);
+            return switch (value) {
+                case "true" -> 1;
+                case "false" -> 0;
+                default -> Integer.parseInt(value);
+            };
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
 
     final BufferedOutputStream inner;
 
@@ -53,13 +107,39 @@ public final class NativePackedOutputStream implements WritableByteChannel {
      * Bit i is set iff byte i (little-endian order) of `word` is nonzero:
      * the word's packing tag. Exact per-byte zero detection (Hacker's
      * Delight 6-2; the shorter {@code (v - 0x01..) & ~v & 0x80..} variant
-     * has false positives after a zero byte), then a carry-free multiply
-     * gathers the eight 0x80 flags into one byte.
+     * has false positives after a zero byte), then the eight 0x80 flags are
+     * gathered into one byte: a carry-free multiply where that is cheap,
+     * else a shift-fold that keeps the aarch64 path off the 64-bit multiply.
      */
     static int tagOf(long word) {
         long zeros = ~(((word & LOW_SEVEN) + LOW_SEVEN) | word | LOW_SEVEN);
-        int zeroMask = (int) ((zeros * MOVE_MASK_MAGIC) >>> 56);
-        return 0xFF & ~zeroMask;
+        if (HAS_FAST_BIT_GATHER) {
+            int zeroMask = (int) ((zeros * MOVE_MASK_MAGIC) >>> 56);
+            return 0xFF & ~zeroMask;
+        }
+        long nonzero = ~zeros & HIGH_BITS;   // bit 8i+7 set iff byte i is nonzero
+        nonzero >>>= 7;                      // move each flag down to bit 8i
+        nonzero &= LOW_BITS;
+        nonzero |= nonzero >>> 7;
+        nonzero |= nonzero >>> 14;
+        nonzero |= nonzero >>> 28;
+        return (int) (nonzero & 0xFF);
+    }
+
+    /**
+     * The nonzero bytes of `word` moved to the low end in order, identical to
+     * {@code Long.compress(word, byteMask)}. The shift path for ISAs where
+     * {@code Long.compress} has no hardware bit-gather; `tag` drives which
+     * bytes advance the write cursor, so the loop carries no data branch.
+     */
+    static long compactNonzeroBytes(long word, int tag) {
+        long packed = 0L;
+        int shift = 0;
+        for (int i = 0; i < 8; i++) {
+            packed |= ((word >>> (i << 3)) & 0xFFL) << shift;
+            shift += ((tag >>> i) & 1) << 3;
+        }
+        return packed;
     }
 
     /** Number of zero bytes in `word`. */
@@ -119,8 +199,14 @@ public final class NativePackedOutputStream implements WritableByteChannel {
             //# guarantees 8 bytes of room after the tag). Bytes beyond the
             //# tag's bit count land past `position` and are overwritten by
             //# whatever is emitted next.
-            long byteMask = Long.expand(tag, LOW_BITS) * 0xFFL;
-            putLongLe(out, tagPos + 1, Long.compress(word, byteMask));
+            long compacted;
+            if (HAS_FAST_BIT_GATHER) {
+                long byteMask = Long.expand(tag, LOW_BITS) * 0xFFL;
+                compacted = Long.compress(word, byteMask);
+            } else {
+                compacted = compactNonzeroBytes(word, tag);
+            }
+            putLongLe(out, tagPos + 1, compacted);
             out.position(tagPos + 1 + Integer.bitCount(tag));
 
             if (tag == 0) {

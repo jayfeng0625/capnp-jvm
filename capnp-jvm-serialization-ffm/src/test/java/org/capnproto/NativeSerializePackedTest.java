@@ -40,6 +40,7 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -256,6 +257,40 @@ public class NativeSerializePackedTest {
                 if (((word >>> (8 * b)) & 0xFF) != 0) expected |= 1 << b;
             }
             assertEquals(expected, NativePackedOutputStream.tagOf(word), Long.toHexString(word));
+        }
+    }
+
+    @Test
+    public void testIsFastBitGather() {
+        // x86-64: the PEXT / PDEP intrinsic backing Long.compress needs BMI2.
+        assertTrue(NativePackedOutputStream.isFastBitGather("amd64", true, 0));
+        assertTrue(NativePackedOutputStream.isFastBitGather("x86_64", true, 0));
+        assertFalse(NativePackedOutputStream.isFastBitGather("amd64", false, 0));
+        // aarch64: a hardware bit-permute needs SVE2 (UseSVE >= 2). NEON-only
+        // and scalar cores fall back, so anything below 2 takes the shift path.
+        assertFalse(NativePackedOutputStream.isFastBitGather("aarch64", false, 0));
+        assertFalse(NativePackedOutputStream.isFastBitGather("aarch64", false, 1));
+        assertTrue(NativePackedOutputStream.isFastBitGather("aarch64", false, 2));
+        // Unknown ISA: never assume a fast intrinsic.
+        assertFalse(NativePackedOutputStream.isFastBitGather("riscv64", true, 4));
+        assertFalse(NativePackedOutputStream.isFastBitGather("", false, 0));
+    }
+
+    @Test
+    public void testCompactNonzeroBytesMatchesCompress() {
+        // The shift-based gather (aarch64 path) must produce the same low bytes
+        // as the Long.compress intrinsic (x86 path) for every word. Only the
+        // low bitCount(tag) bytes are meaningful; the rest are overwritten.
+        Random rng = new Random(99);
+        for (int i = 0; i < 100_000; ++i) {
+            long word = rng.nextLong() & rng.nextLong(); // bias toward zero bytes
+            int tag = NativePackedOutputStream.tagOf(word);
+            long byteMask = Long.expand(tag, 0x0101010101010101L) * 0xFFL;
+            long expected = Long.compress(word, byteMask);
+            long actual = NativePackedOutputStream.compactNonzeroBytes(word, tag);
+            int meaningful = Integer.bitCount(tag);
+            long keep = meaningful >= 8 ? -1L : (1L << (8 * meaningful)) - 1;
+            assertEquals(expected & keep, actual & keep, Long.toHexString(word));
         }
     }
 
