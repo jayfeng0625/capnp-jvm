@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>org.capnproto</groupId>
-        <artifactId>capnproto-java</artifactId>
+        <artifactId>capnp-jvm</artifactId>
         <version>${revision}</version>
     </parent>
     <artifactId>compiler</artifactId>
@@ -19,7 +19,7 @@
 
         <dependency>
           <groupId>org.capnproto</groupId>
-          <artifactId>capnp-jvm-serialization-bytebuffer</artifactId>
+          <artifactId>capnp-jvm-serialization-nio</artifactId>
         </dependency>
 
         <dependency>

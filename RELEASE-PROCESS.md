@@ -5,7 +5,7 @@ How to release
 * Bump the version in one place: the `<revision>` property in the root `pom.xml`
   (all modules inherit it). You can also override it per build with
   `-Drevision=x.y.z` without editing any file.
-* `mvn -pl .,capnp-jvm-core,capnp-jvm-serialization,capnp-jvm-serialization-bytebuffer clean deploy -P release`
+* `mvn -pl .,capnp-jvm-core,capnp-jvm-serialization,capnp-jvm-serialization-nio clean deploy -P release`
   * The flatten-maven-plugin resolves `${revision}` in the deployed POMs.
   * The leading `.` deploys the parent POM (`capnproto-java`) too. It must be
     published: the module POMs inherit their dependency versions from the

@@ -22,12 +22,19 @@
 package org.capnproto.benchmark;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileDescriptor;
 
+import org.capnproto.ArenaAllocator;
+import org.capnproto.MemorySegmentInputStream;
+import org.capnproto.MemorySegmentOutputStream;
+import org.capnproto.FfmBufferedInputStream;
+import org.capnproto.FfmBufferedOutputStream;
 import org.capnproto.StructFactory;
 import org.capnproto.MessageBuilder;
 import org.capnproto.MessageReader;
@@ -73,6 +80,79 @@ public abstract class TestCase<RequestFactory extends
             if (reuse) {
                 requestMessage.clearFirstSegment();
                 responseMessage.clearFirstSegment();
+            }
+        }
+    }
+
+    // Like passByObject with no-reuse, but message memory lives off-heap in
+    // FFM arenas that are freed deterministically at the end of each iteration.
+    public void passByObjectArena(RequestFactory requestFactory, ResponseFactory responseFactory,
+                                  long iters) {
+        Common.FastRand rng = new Common.FastRand();
+
+        for (int i = 0; i < iters; ++i) {
+            try (ArenaAllocator requestAllocator = new ArenaAllocator();
+                 ArenaAllocator responseAllocator = new ArenaAllocator()) {
+                MessageBuilder requestMessage = new MessageBuilder(requestAllocator);
+                MessageBuilder responseMessage = new MessageBuilder(responseAllocator);
+                RequestBuilder request = requestMessage.initRoot(requestFactory);
+                Expectation expected = this.setupRequest(rng, request);
+                ResponseBuilder response = responseMessage.initRoot(responseFactory);
+                this.handleRequest(requestFactory.asReader(request), response);
+                if (!this.checkResponse(responseFactory.asReader(response), expected)) {
+                    System.out.println("mismatch!");
+                }
+            }
+        }
+    }
+
+    // Like passByBytes with no-reuse, but native end to end: builder message
+    // memory, the serialized bytes, and the read-side messages all live in FFM
+    // arena memory. The per-iteration arena is freed deterministically at the
+    // end of each iteration; the serialized-bytes scratch is allocated once.
+    public void passByBytesArena(RequestFactory requestFactory, ResponseFactory responseFactory,
+                                 Compression compression, long iters) throws IOException {
+        FfmCompression ffmCompression = FfmCompression.of(compression);
+
+        try (Arena scratchArena = Arena.ofConfined()) {
+            MemorySegment requestBytes = scratchArena.allocate(SCRATCH_SIZE * 8, 8);
+            MemorySegment responseBytes = scratchArena.allocate(SCRATCH_SIZE * 8, 8);
+            Common.FastRand rng = new Common.FastRand();
+
+            for (int i = 0; i < iters; ++i) {
+                try (Arena arena = Arena.ofConfined()) {
+                    MessageBuilder requestMessage = new MessageBuilder(new ArenaAllocator(arena));
+                    MessageBuilder responseMessage = new MessageBuilder(new ArenaAllocator(arena));
+                    RequestBuilder request = requestMessage.initRoot(requestFactory);
+                    Expectation expected = this.setupRequest(rng, request);
+                    ResponseBuilder response = responseMessage.initRoot(responseFactory);
+
+                    {
+                        MemorySegmentOutputStream writer =
+                            new MemorySegmentOutputStream(requestBytes);
+                        ffmCompression.writeBuffered(writer, requestMessage);
+                    }
+
+                    {
+                        MessageReader messageReader = ffmCompression.newBufferedReader(
+                            new MemorySegmentInputStream(requestBytes), arena);
+                        this.handleRequest(messageReader.getRoot(requestFactory), response);
+                    }
+
+                    {
+                        MemorySegmentOutputStream writer =
+                            new MemorySegmentOutputStream(responseBytes);
+                        ffmCompression.writeBuffered(writer, responseMessage);
+                    }
+
+                    {
+                        MessageReader messageReader = ffmCompression.newBufferedReader(
+                            new MemorySegmentInputStream(responseBytes), arena);
+                        if (!this.checkResponse(messageReader.getRoot(responseFactory), expected)) {
+                            throw new Error("incorrect response");
+                        }
+                    }
+                }
             }
         }
     }
@@ -169,6 +249,57 @@ public abstract class TestCase<RequestFactory extends
         }
     }
 
+    // Like syncServer, but message memory lives off-heap in an FFM arena freed
+    // at the end of each iteration, and the pipe is buffered in native memory.
+    public void syncServerArena(RequestFactory requestFactory, ResponseFactory responseFactory,
+                                Compression compression, long iters) throws IOException {
+        FfmCompression ffmCompression = FfmCompression.of(compression);
+        FfmBufferedOutputStream outBuffered =
+            new FfmBufferedOutputStream((new FileOutputStream(FileDescriptor.out)).getChannel());
+        FfmBufferedInputStream inBuffered =
+            new FfmBufferedInputStream((new FileInputStream(FileDescriptor.in)).getChannel());
+
+        for (int ii = 0; ii < iters; ++ii) {
+            try (Arena arena = Arena.ofConfined()) {
+                MessageBuilder responseMessage = new MessageBuilder(new ArenaAllocator(arena));
+                {
+                    ResponseBuilder response = responseMessage.initRoot(responseFactory);
+                    MessageReader messageReader = ffmCompression.newBufferedReader(inBuffered, arena);
+                    RequestReader request = messageReader.getRoot(requestFactory);
+                    this.handleRequest(request, response);
+                }
+                ffmCompression.writeBuffered(outBuffered, responseMessage);
+            }
+        }
+    }
+
+    // Like syncClient, but message memory lives off-heap in an FFM arena freed
+    // at the end of each iteration, and the pipe is buffered in native memory.
+    public void syncClientArena(RequestFactory requestFactory, ResponseFactory responseFactory,
+                                Compression compression, long iters) throws IOException {
+        FfmCompression ffmCompression = FfmCompression.of(compression);
+        Common.FastRand rng = new Common.FastRand();
+        FfmBufferedOutputStream outBuffered =
+            new FfmBufferedOutputStream((new FileOutputStream(FileDescriptor.out)).getChannel());
+        FfmBufferedInputStream inBuffered =
+            new FfmBufferedInputStream((new FileInputStream(FileDescriptor.in)).getChannel());
+
+        for (int ii = 0; ii < iters; ++ii) {
+            try (Arena arena = Arena.ofConfined()) {
+                MessageBuilder requestMessage = new MessageBuilder(new ArenaAllocator(arena));
+                RequestBuilder request = requestMessage.initRoot(requestFactory);
+                Expectation expected = this.setupRequest(rng, request);
+
+                ffmCompression.writeBuffered(outBuffered, requestMessage);
+                MessageReader messageReader = ffmCompression.newBufferedReader(inBuffered, arena);
+                ResponseReader response = messageReader.getRoot(responseFactory);
+                if (!this.checkResponse(response, expected)) {
+                    throw new Error("incorrect response");
+                }
+            }
+        }
+    }
+
     public void execute(String[] args, RequestFactory requestFactory, ResponseFactory responseFactory) {
 
         if (args.length != 4) {
@@ -178,12 +309,15 @@ public abstract class TestCase<RequestFactory extends
 
         String mode = args[0];
         boolean reuse = false;
+        boolean arena = false;
         if (args[1].equals("reuse")) {
             reuse = true;
         } else if (args[1].equals("no-reuse")) {
             reuse = false;
+        } else if (args[1].equals("arena")) {
+            arena = true;
         } else {
-            throw new Error("REUSE must be either 'reuse' or 'no-reuse'.");
+            throw new Error("REUSE must be 'reuse', 'no-reuse', or 'arena'.");
         }
         Compression compression = null;
         if (args[2].equals("packed")) {
@@ -197,13 +331,29 @@ public abstract class TestCase<RequestFactory extends
 
         try {
             if (mode.equals("object")) {
-                passByObject(requestFactory, responseFactory, reuse, compression, iters);
+                if (arena) {
+                    passByObjectArena(requestFactory, responseFactory, iters);
+                } else {
+                    passByObject(requestFactory, responseFactory, reuse, compression, iters);
+                }
             } else if (mode.equals("bytes")) {
-                passByBytes(requestFactory, responseFactory, reuse, compression, iters);
+                if (arena) {
+                    passByBytesArena(requestFactory, responseFactory, compression, iters);
+                } else {
+                    passByBytes(requestFactory, responseFactory, reuse, compression, iters);
+                }
             } else if (mode.equals("client")) {
-                syncClient(requestFactory, responseFactory, reuse, compression, iters);
+                if (arena) {
+                    syncClientArena(requestFactory, responseFactory, compression, iters);
+                } else {
+                    syncClient(requestFactory, responseFactory, reuse, compression, iters);
+                }
             } else if (mode.equals("server")) {
-                syncServer(requestFactory, responseFactory, reuse, compression, iters);
+                if (arena) {
+                    syncServerArena(requestFactory, responseFactory, compression, iters);
+                } else {
+                    syncServer(requestFactory, responseFactory, reuse, compression, iters);
+                }
             } else {
                 System.out.println("unrecognized mode: " + mode);
             }

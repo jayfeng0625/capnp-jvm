@@ -6,12 +6,20 @@
         <artifactId>capnp-jvm</artifactId>
         <version>${revision}</version>
     </parent>
-    <artifactId>capnp-jvm-core</artifactId>
+    <artifactId>capnp-jvm-serialization-nio</artifactId>
     <packaging>jar</packaging>
-    <name>Cap'n Proto runtime library</name>
-    <description>capnp-jvm core runtime</description>
+    <name>Cap'n Proto ByteBuffer serialization</name>
+    <description>capnp-jvm ByteBuffer serialization implementation</description>
 
     <dependencies>
+        <dependency>
+          <groupId>org.capnproto</groupId>
+          <artifactId>capnp-jvm-core</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>org.capnproto</groupId>
+          <artifactId>capnp-jvm-serialization</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

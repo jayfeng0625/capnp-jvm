@@ -2,7 +2,7 @@
 <project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.capnproto</groupId>
-    <artifactId>capnproto-java</artifactId>
+    <artifactId>capnp-jvm</artifactId>
     <packaging>pom</packaging>
     <version>${revision}</version>
     <name>Cap'n Proto for Java</name>
@@ -13,7 +13,8 @@
     <modules>
       <module>capnp-jvm-core</module>
       <module>capnp-jvm-serialization</module>
-      <module>capnp-jvm-serialization-bytebuffer</module>
+      <module>capnp-jvm-serialization-nio</module>
+      <module>capnp-jvm-serialization-ffm</module>
       <module>compiler</module>
       <module>examples</module>
       <module>benchmark</module>
@@ -26,8 +27,9 @@
         </license>
     </licenses>
     <scm>
-        <url>git@github.com:capnproto/capnproto-java.git</url>
-        <connection>scm:git@github.com:capnproto/capnproto-java.git</connection>
+        <url>git@github.com:jayfeng0625/capnp-jvm.git</url>
+        <connection>scm:git@github.com:jayfeng0625/capnp-jvm.git</connection>
+        <developerConnection>scm:git@github.com:jayfeng0625/capnp-jvm.git</developerConnection>
     </scm>
     <developers>
         <developer>
@@ -77,7 +79,12 @@
         </dependency>
         <dependency>
           <groupId>org.capnproto</groupId>
-          <artifactId>capnp-jvm-serialization-bytebuffer</artifactId>
+          <artifactId>capnp-jvm-serialization-nio</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>org.capnproto</groupId>
+          <artifactId>capnp-jvm-serialization-ffm</artifactId>
           <version>${project.version}</version>
         </dependency>
         <dependency>

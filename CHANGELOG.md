@@ -1,7 +1,7 @@
 ## v0.2.0 (unreleased)
 - Split the runtime into extensible modules: `capnp-jvm-core`,
   `capnp-jvm-serialization` (serialization API), and
-  `capnp-jvm-serialization-bytebuffer` (ByteBuffer implementation).
+  `capnp-jvm-serialization-nio` (ByteBuffer implementation).
 - Centralize shared build metadata in the parent POM and manage the project
   version from a single `<revision>` property (Maven CI-friendly versions).
 
