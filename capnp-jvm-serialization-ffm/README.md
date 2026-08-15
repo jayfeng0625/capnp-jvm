@@ -119,3 +119,34 @@ time — each word is read once as a long and its nonzero bytes are compacted
 with register arithmetic (`Long.compress`, intrinsified on x86) — producing
 identical wire bytes (verified against a reference implementation over
 randomized inputs) while turning that regression into the −18% win above.
+
+## Benchmark log
+
+Append-only record of full benchmark-matrix runs (`do_benchmarks.bash`
+modes). Wall-clock `real` seconds, one run per cell; `client/server` rows
+time the whole `client | server` pipeline over a FIFO. `no-reuse` is the
+ByteBuffer module with fresh heap allocation per iteration; `arena` is the
+FFM module with a fresh confined arena per iteration.
+Δ = (arena − no-reuse) / no-reuse; negative means the arena run was faster.
+
+### 2026-08-15 — Linux x86_64, 4 vCPU, Temurin 25.0.4+7, HEAD 9cace9b
+
+30/30 runs exited 0 with no correctness failures reported by the harness.
+
+| Case | Mode | Compression | Iterations | no-reuse | arena | Δ |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| CarSales | object | none | 100,000 | 7.527 | 7.748 | +2.9% |
+| CarSales | bytes | none | 100,000 | 10.224 | 9.896 | −3.2% |
+| CarSales | bytes | packed | 100,000 | 19.131 | 15.876 | −17.0% |
+| CarSales | client/server | none | 100,000 | 17.533 | 17.714 | +1.0% |
+| CarSales | client/server | packed | 100,000 | 26.237 | 22.107 | −15.7% |
+| CatRank | object | none | 10,000 | 7.009 | 7.392 | +5.5% |
+| CatRank | bytes | none | 10,000 | 8.525 | 9.217 | +8.1% |
+| CatRank | bytes | packed | 10,000 | 15.722 | 13.475 | −14.3% |
+| CatRank | client/server | none | 10,000 | 12.387 | 12.499 | +0.9% |
+| CatRank | client/server | packed | 10,000 | 17.504 | 15.071 | −13.9% |
+| Eval | object | none | 2,000,000 | 13.687 | 10.248 | −25.1% |
+| Eval | bytes | none | 2,000,000 | 15.595 | 12.197 | −21.8% |
+| Eval | bytes | packed | 2,000,000 | 30.558 | 23.222 | −24.0% |
+| Eval | client/server | none | 2,000,000 | 122.115 | 124.149 | +1.7% |
+| Eval | client/server | packed | 2,000,000 | 138.948 | 138.232 | −0.5% |
