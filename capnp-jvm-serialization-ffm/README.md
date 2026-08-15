@@ -150,3 +150,35 @@ FFM module with a fresh confined arena per iteration.
 | Eval | bytes | packed | 2,000,000 | 30.558 | 23.222 | −24.0% |
 | Eval | client/server | none | 2,000,000 | 122.115 | 124.149 | +1.7% |
 | Eval | client/server | packed | 2,000,000 | 138.948 | 138.232 | −0.5% |
+
+### 2026-08-15, macOS 26.5.2 arm64 (Apple M5 Pro, 18 cores), Temurin 25.0.4+7, HEAD dcb5f0e
+
+30/30 runs exited 0 with no correctness failures reported by the harness.
+`NativeSerializePackedTest` passes 7/7 here, so the word-at-a-time packed writer
+produces identical wire bytes on the scalar `Long.compress` path.
+
+| Case | Mode | Compression | Iterations | no-reuse | arena | Δ |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| CarSales | object | none | 100,000 | 2.624 | 3.363 | +28.2% |
+| CarSales | bytes | none | 100,000 | 2.729 | 2.618 | −4.1% |
+| CarSales | bytes | packed | 100,000 | 6.708 | 7.759 | +15.7% |
+| CarSales | client/server | none | 100,000 | 3.868 | 4.172 | +7.9% |
+| CarSales | client/server | packed | 100,000 | 6.899 | 7.977 | +15.6% |
+| CatRank | object | none | 10,000 | 3.147 | 3.750 | +19.2% |
+| CatRank | bytes | none | 10,000 | 3.293 | 3.734 | +13.4% |
+| CatRank | bytes | packed | 10,000 | 5.563 | 6.758 | +21.5% |
+| CatRank | client/server | none | 10,000 | 4.485 | 4.770 | +6.4% |
+| CatRank | client/server | packed | 10,000 | 5.400 | 6.536 | +21.0% |
+| Eval | object | none | 2,000,000 | 4.099 | 4.146 | +1.1% |
+| Eval | bytes | none | 2,000,000 | 4.696 | 4.885 | +4.0% |
+| Eval | bytes | packed | 2,000,000 | 10.347 | 11.578 | +11.9% |
+| Eval | client/server | none | 2,000,000 | 20.329 | 20.030 | −1.5% |
+| Eval | client/server | packed | 2,000,000 | 21.435 | 22.937 | +7.0% |
+
+Note: every packed arena row regressed here, by +7% to +22%.
+That is the sign inverse of the x86 run above, where packed arena won by 14% to 24%.
+AArch64 has no scalar PEXT, and this JVM runs with UseSVE=0 (verified with `-XX:+PrintFlagsFinal`), so C2 emits no SVE2 bit-permute either.
+So `Long.compress` in `NativePackedOutputStream` runs the `java.lang.Long` software fallback, not a single hardware bit-gather.
+The per-read liveness check on the confined arena buffer view is then no longer hidden by a cheap compaction.
+The eight-register-shift emitter keeps the single `getLong` and drops `Long.compress`; it is the ready fallback for aarch64 parity.
+The non-packed arena wins also shrank to near neutral, because this box runs the allocation-bound cases about 3x faster in absolute terms, so per-iteration arena setup and teardown now dominate the small messages.
