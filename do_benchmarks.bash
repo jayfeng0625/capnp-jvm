@@ -7,7 +7,7 @@ shopt -s expand_aliases
 rm -f fifo;
 mkfifo fifo
 
-alias run_java="java -cp capnp-jvm-core/target/classes:capnp-jvm-serialization/target/classes:capnp-jvm-serialization-bytebuffer/target/classes:capnp-jvm-serialization-ffm/target/classes:benchmark/target/classes"
+alias run_java="java -cp capnp-jvm-core/target/classes:capnp-jvm-serialization/target/classes:capnp-jvm-serialization-nio/target/classes:capnp-jvm-serialization-ffm/target/classes:benchmark/target/classes"
 
 ITERS=100000
 

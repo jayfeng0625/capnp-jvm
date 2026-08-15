@@ -19,7 +19,7 @@
 
         <dependency>
           <groupId>org.capnproto</groupId>
-          <artifactId>capnp-jvm-serialization-bytebuffer</artifactId>
+          <artifactId>capnp-jvm-serialization-nio</artifactId>
         </dependency>
     </dependencies>
 

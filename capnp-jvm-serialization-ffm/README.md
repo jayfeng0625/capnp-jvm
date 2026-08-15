@@ -4,7 +4,7 @@ Cap'n Proto serialization built on the Foreign Function and Memory API (FFM, JEP
 FFM supplies four things here: native message storage, deterministic ownership, file mapping, and native stream I/O.
 Scalar Cap'n Proto field access intentionally stays on ByteBuffer views, because that path measured faster than raw `MemorySegment` accessors on JDK 25.
 So FFM owns the buffer and its lifetime, while the existing ByteBuffer accessor reads and writes the fields inside it.
-This module implements the same interfaces as `capnp-jvm-serialization-bytebuffer`: `BufferedInputStream` and `BufferedOutputStream` from `capnp-jvm-serialization`, and `Allocator` from `capnp-jvm-core`.
+This module implements the same interfaces as `capnp-jvm-serialization-nio`: `BufferedInputStream` and `BufferedOutputStream` from `capnp-jvm-serialization`, and `Allocator` from `capnp-jvm-core`.
 The two modules are drop-in alternatives that produce identical bytes on the wire.
 
 ## Design
@@ -39,7 +39,7 @@ FFM-idiomatic:
 3. **Serialize natively end to end.** Reading from a channel places all
    segments in one contiguous native allocation, filled segment by segment
    (per-segment reads keep the packed decoder's boundary validation
-   identical to the ByteBuffer module's).
+   identical to the NIO module's).
    Writing hands the channel direct buffers (no on-heap staging hop — the
    measured cause of the arena prototype's +14% regression on
    serialization-heavy workloads), and gathering channels receive the segment
@@ -57,7 +57,7 @@ needed, and the module keeps the zero-third-party-dependency promise
 
 ## Class map
 
-| FFM module | ByteBuffer module counterpart |
+| FFM module | NIO module counterpart |
 | --- | --- |
 | `ArenaAllocator` | `DefaultAllocator` (core) |
 | `FfmMessage` | — (deterministic-lifetime reader handle) |
@@ -121,7 +121,7 @@ That check initially made dense-message packing (CarSales packed) about 20% slow
 `FfmPackedOutputStream` therefore packs a word at a time.
 It reads each word once as a long, then compacts its nonzero bytes with register arithmetic.
 This word-at-a-time rewrite is a SWAR codec change, independent of FFM.
-The heap module's writer could adopt the same technique.
+The NIO module's writer could adopt the same technique.
 Where `Long.compress` lowers to a hardware bit-gather (x86-64 PEXT, or aarch64 under SVE2), it does the compaction.
 Where `Long.compress` is a scalar software fallback, as on Apple and current server aarch64, a branch-free shift path compacts instead.
 The code chooses the path once at class load, by a VM-flag capability probe.
@@ -130,14 +130,14 @@ The single word-at-a-time read removes the regression on its own.
 On x86 the hardware bit-gather adds the rest of the win.
 On aarch64 the shift path recovers most of it (the latest aarch64 log below).
 So the packed wins reflect the SWAR/bit-gather writer as much as native storage.
-A fair packed comparison would run the same word-at-a-time codec on the heap module and the FFM module.
+A fair packed comparison would run the same word-at-a-time codec on the NIO module and the FFM module.
 
 ## Benchmark log
 
 Append-only record of full benchmark-matrix runs (`do_benchmarks.bash`
 modes). Wall-clock `real` seconds, one run per cell; `client/server` rows
 time the whole `client | server` pipeline over a FIFO. `no-reuse` is the
-ByteBuffer module with fresh heap allocation per iteration; `arena` is the
+NIO module with fresh heap allocation per iteration; `arena` is the
 FFM module with a fresh confined arena per iteration.
 Δ = (arena − no-reuse) / no-reuse; negative means the arena run was faster.
 
