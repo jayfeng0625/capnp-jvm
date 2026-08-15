@@ -25,19 +25,54 @@ package org.capnproto;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 /**
  * Applies the packed encoding (https://capnproto.org/encoding.html#packing)
- * on the way to a {@link BufferedOutputStream}. Byte-for-byte the same codec
- * as the ByteBuffer module's {@code PackedOutputStream}; pairs with the FFM
- * streams so the codec reads its input straight out of native message
- * segments and packs into a native output buffer.
+ * on the way to a {@link BufferedOutputStream}. Produces the identical wire
+ * bytes as the ByteBuffer module's {@code PackedOutputStream}, but packs a
+ * word at a time: each word is read once as a long and compacted with
+ * register arithmetic, instead of sixteen per-byte buffer accesses — which
+ * carry a liveness check each on native (arena-backed) buffers. Pairs with
+ * the FFM streams so the codec reads its input straight out of native
+ * message segments and packs into a native output buffer.
  */
 public final class NativePackedOutputStream implements WritableByteChannel {
+
+    private static final long LOW_BITS = 0x0101010101010101L;
+    private static final long LOW_SEVEN = 0x7F7F7F7F7F7F7F7FL;
+    private static final long MOVE_MASK_MAGIC = 0x0002040810204081L;
+
     final BufferedOutputStream inner;
 
     public NativePackedOutputStream(BufferedOutputStream output) {
         this.inner = output;
+    }
+
+    /**
+     * Bit i is set iff byte i (little-endian order) of `word` is nonzero:
+     * the word's packing tag. Exact per-byte zero detection (Hacker's
+     * Delight 6-2; the shorter {@code (v - 0x01..) & ~v & 0x80..} variant
+     * has false positives after a zero byte), then a carry-free multiply
+     * gathers the eight 0x80 flags into one byte.
+     */
+    static int tagOf(long word) {
+        long zeros = ~(((word & LOW_SEVEN) + LOW_SEVEN) | word | LOW_SEVEN);
+        int zeroMask = (int) ((zeros * MOVE_MASK_MAGIC) >>> 56);
+        return 0xFF & ~zeroMask;
+    }
+
+    /** Number of zero bytes in `word`. */
+    private static int zeroByteCount(long word) {
+        return Integer.bitCount(0xFF & ~tagOf(word));
+    }
+
+    /** Absolute little-endian long store, independent of the buffer's order. */
+    private static void putLongLe(ByteBuffer out, int index, long value) {
+        if (out.order() != ByteOrder.LITTLE_ENDIAN) {
+            value = Long.reverseBytes(value);
+        }
+        out.putLong(index, value);
     }
 
     @Override
@@ -46,6 +81,10 @@ public final class NativePackedOutputStream implements WritableByteChannel {
         ByteBuffer out = this.inner.getWriteBuffer();
 
         ByteBuffer slowBuffer = ByteBuffer.allocate(20);
+
+        // Little-endian view for word-at-a-time reads; shares inBuf's
+        // coordinates but not its (caller-defined) byte order.
+        ByteBuffer in = inBuf.duplicate().order(ByteOrder.LITTLE_ENDIAN);
 
         int inPtr = inBuf.position();
         int inEnd = inPtr + length;
@@ -68,62 +107,21 @@ public final class NativePackedOutputStream implements WritableByteChannel {
             }
 
             int tagPos = out.position();
-            out.position(tagPos + 1);
 
-            byte curByte;
+            long word = in.getLong(inPtr);
+            inPtr += 8;
 
-            curByte = inBuf.get(inPtr);
-            byte bit0 = (curByte != 0) ? (byte)1 : (byte)0;
-            out.put(curByte);
-            out.position(out.position() + bit0 - 1);
-            inPtr += 1;
+            int tag = tagOf(word);
+            out.put(tagPos, (byte) tag);
 
-            curByte = inBuf.get(inPtr);
-            byte bit1 = (curByte != 0) ? (byte)1 : (byte)0;
-            out.put(curByte);
-            out.position(out.position() + bit1 - 1);
-            inPtr += 1;
-
-            curByte = inBuf.get(inPtr);
-            byte bit2 = (curByte != 0) ? (byte)1 : (byte)0;
-            out.put(curByte);
-            out.position(out.position() + bit2 - 1);
-            inPtr += 1;
-
-            curByte = inBuf.get(inPtr);
-            byte bit3 = (curByte != 0) ? (byte)1 : (byte)0;
-            out.put(curByte);
-            out.position(out.position() + bit3 - 1);
-            inPtr += 1;
-
-            curByte = inBuf.get(inPtr);
-            byte bit4 = (curByte != 0) ? (byte)1 : (byte)0;
-            out.put(curByte);
-            out.position(out.position() + bit4 - 1);
-            inPtr += 1;
-
-            curByte = inBuf.get(inPtr);
-            byte bit5 = (curByte != 0) ? (byte)1 : (byte)0;
-            out.put(curByte);
-            out.position(out.position() + bit5 - 1);
-            inPtr += 1;
-
-            curByte = inBuf.get(inPtr);
-            byte bit6 = (curByte != 0) ? (byte)1 : (byte)0;
-            out.put(curByte);
-            out.position(out.position() + bit6 - 1);
-            inPtr += 1;
-
-            curByte = inBuf.get(inPtr);
-            byte bit7 = (curByte != 0) ? (byte)1 : (byte)0;
-            out.put(curByte);
-            out.position(out.position() + bit7 - 1);
-            inPtr += 1;
-
-            byte tag = (byte)((bit0) | (bit1 << 1) | (bit2 << 2) | (bit3 << 3) |
-                              (bit4 << 4) | (bit5 << 5) | (bit6 << 6) | (bit7 << 7));
-
-            out.put(tagPos, tag);
+            //# Compact the nonzero bytes to the low end of the word and
+            //# store them with a single bounded write (the >= 10 check above
+            //# guarantees 8 bytes of room after the tag). Bytes beyond the
+            //# tag's bit count land past `position` and are overwritten by
+            //# whatever is emitted next.
+            long byteMask = Long.expand(tag, LOW_BITS) * 0xFFL;
+            putLongLe(out, tagPos + 1, Long.compress(word, byteMask));
+            out.position(tagPos + 1 + Integer.bitCount(tag));
 
             if (tag == 0) {
                 //# An all-zero word is followed by a count of
@@ -134,12 +132,12 @@ public final class NativePackedOutputStream implements WritableByteChannel {
                 if (limit - inPtr > 255 * 8) {
                     limit = inPtr + 255 * 8;
                 }
-                while(inPtr < limit && inBuf.getLong(inPtr) == 0){
+                while(inPtr < limit && in.getLong(inPtr) == 0){
                     inPtr += 8;
                 }
                 out.put((byte)((inPtr - runStart)/8));
 
-            } else if (tag == (byte)0xff) {
+            } else if (tag == 0xff) {
                 //# An all-nonzero word is followed by a count of
                 //# consecutive uncompressed words, followed by the
                 //# uncompressed words themselves.
@@ -156,12 +154,9 @@ public final class NativePackedOutputStream implements WritableByteChannel {
                 }
 
                 while (inPtr < limit) {
-                    byte c = 0;
-                    for (int ii = 0; ii < 8; ++ii) {
-                        c += (inBuf.get(inPtr) == 0 ? 1 : 0);
-                        inPtr += 1;
-                    }
-                    if (c >= 2) {
+                    long w = in.getLong(inPtr);
+                    inPtr += 8;
+                    if (zeroByteCount(w) >= 2) {
                         //# Un-read the word with multiple zeros, since
                         //# we'll want to compress that one.
                         inPtr -= 8;

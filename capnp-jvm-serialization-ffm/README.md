@@ -96,25 +96,26 @@ on the thread that created its allocator, or pass `Arena.ofShared()` /
 ## Measured behavior (what to expect where)
 
 Directional wall-clock numbers from this repository's benchmark harness
-(`do_benchmarks.bash` arena modes, JDK 25, shared 4-vCPU box — trust the
-signs and rough magnitudes, not the digits):
+(`do_benchmarks.bash` arena modes, JDK 25, shared 4-vCPU box; every
+heap/arena pair measured back to back in one session — trust the signs and
+rough magnitudes, not the digits):
 
 | Benchmark | heap | arena | Δ |
 | --- | ---: | ---: | ---: |
-| Eval object | 6.2 s | 4.2 s | **−31%** |
-| Eval bytes | 6.9 s | 5.3 s | **−23%** |
-| Eval bytes packed | 13.7 s | 11.6 s | **−15%** |
-| CarSales bytes | 5.4 s | 5.6 s | +4% |
-| CarSales bytes packed | 14.3 s | 17.3 s | +21% |
+| Eval object | 6.8 s | 5.2 s | **−24%** |
+| Eval bytes | 7.6 s | 6.5 s | **−15%** |
+| Eval bytes packed | 15.0 s | 11.9 s | **−21%** |
+| CarSales bytes | 8.4 s | 9.0 s | +8% |
+| CarSales bytes packed | 19.1 s | 15.5 s | **−18%** |
 
 The pattern matches the research branch: workloads bounded by message-buffer
 allocation (Eval-shaped) win large; workloads bounded by reader-object
-allocation (CarSales-shaped) are near-neutral until Valhalla value-class
-readers land. The one regression is the packed codec over *dense* messages:
-packing is inherently byte-at-a-time, and every byte read from a confined
-arena's buffer view carries a liveness/ownership check, which heap arrays
-don't pay. (Native scratch already softened the unpacked CarSales-bytes case
-from the research prototype's +14% to ~+4%.) If your workload is
-packed-throughput-bound over large dense messages, keep building those
-messages on the heap — the two serialization modules interoperate freely —
-or revisit when C2 folds these checks better.
+allocation (CarSales-shaped) stay near-neutral until Valhalla value-class
+readers land. Packed mode deserves a note: a byte-at-a-time packed writer
+pays a liveness/ownership check on every read from a confined arena's buffer
+view, which initially made dense-message packing (CarSales packed) ~20%
+*slower* than heap. `NativePackedOutputStream` therefore packs a word at a
+time — each word is read once as a long and its nonzero bytes are compacted
+with register arithmetic (`Long.compress`, intrinsified on x86) — producing
+identical wire bytes (verified against a reference implementation over
+randomized inputs) while turning that regression into the −18% win above.

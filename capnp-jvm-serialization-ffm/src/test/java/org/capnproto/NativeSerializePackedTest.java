@@ -25,6 +25,7 @@ package org.capnproto;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -35,6 +36,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -170,6 +172,146 @@ public class NativeSerializePackedTest {
             () -> NativeSerializePacked.read(
                 new MemorySegmentInputStream(MemorySegment.ofArray(malformed)),
                 ReaderOptions.DEFAULT_READER_OPTIONS));
+    }
+
+    /**
+     * Straightforward reference implementation of the packed encoding over
+     * plain arrays, used as an independent oracle for the optimized writer.
+     * Mirrors the wire rules exactly: per-word tag + nonzero bytes, zero-run
+     * counts after 0x00 tags, uncompressed-run counts after 0xff tags with
+     * the fewer-than-two-zero-bytes run heuristic, both runs capped at 255
+     * words.
+     */
+    private static byte[] referencePack(byte[] in) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int p = 0;
+        int end = in.length;
+        while (p < end) {
+            int tag = 0;
+            for (int i = 0; i < 8; ++i) {
+                if (in[p + i] != 0) tag |= 1 << i;
+            }
+            out.write(tag);
+            for (int i = 0; i < 8; ++i) {
+                if (in[p + i] != 0) out.write(in[p + i]);
+            }
+            p += 8;
+
+            if (tag == 0) {
+                int runStart = p;
+                int limit = Math.min(end, p + 255 * 8);
+                while (p < limit && isZeroWord(in, p)) {
+                    p += 8;
+                }
+                out.write((p - runStart) / 8);
+            } else if (tag == 0xff) {
+                int runStart = p;
+                int limit = Math.min(end, p + 255 * 8);
+                while (p < limit) {
+                    int zeros = 0;
+                    for (int i = 0; i < 8; ++i) {
+                        if (in[p + i] == 0) zeros++;
+                    }
+                    p += 8;
+                    if (zeros >= 2) {
+                        p -= 8;
+                        break;
+                    }
+                }
+                int count = p - runStart;
+                out.write(count / 8);
+                out.write(in, runStart, count);
+            }
+        }
+        return out.toByteArray();
+    }
+
+    private static boolean isZeroWord(byte[] in, int p) {
+        for (int i = 0; i < 8; ++i) {
+            if (in[p + i] != 0) return false;
+        }
+        return true;
+    }
+
+    @Test
+    public void testTagOf() {
+        assertEquals(0x00, NativePackedOutputStream.tagOf(0x0000000000000000L));
+        assertEquals(0xFF, NativePackedOutputStream.tagOf(0xFFFFFFFFFFFFFFFFL));
+        assertEquals(0x01, NativePackedOutputStream.tagOf(0x00000000000000FFL));
+        assertEquals(0x80, NativePackedOutputStream.tagOf(0x8000000000000000L));
+        // 0x00 byte followed by 0x01: the pattern where the naive SWAR
+        // zero-detect ((v - 0x01..) & ~v & 0x80..) reports a false positive.
+        assertEquals(0x02, NativePackedOutputStream.tagOf(0x0000000000000100L));
+        // 0x80 bytes must not read as zero.
+        assertEquals(0xFF, NativePackedOutputStream.tagOf(0x8080808080808080L));
+        // Mixed: bytes (LE order) 01 00 80 00 FF 00 7F 00 -> bits 0,2,4,6.
+        assertEquals(0x55, NativePackedOutputStream.tagOf(0x007F00FF00800001L));
+
+        // Exhaustive per-bit check against a byte-wise oracle.
+        Random rng = new Random(7);
+        for (int i = 0; i < 10_000; ++i) {
+            long word = rng.nextLong() & rng.nextLong() & rng.nextLong(); // bias toward zero bytes
+            int expected = 0;
+            for (int b = 0; b < 8; ++b) {
+                if (((word >>> (8 * b)) & 0xFF) != 0) expected |= 1 << b;
+            }
+            assertEquals(expected, NativePackedOutputStream.tagOf(word), Long.toHexString(word));
+        }
+    }
+
+    @Test
+    public void testWriterMatchesReferenceOnRandomInput() throws IOException {
+        Random rng = new Random(42);
+        try (Arena arena = Arena.ofConfined()) {
+            for (int trial = 0; trial < 300; ++trial) {
+                // Sizes past 255 words exercise both run caps; densities from
+                // all-zero to all-dense exercise every tag path.
+                int words = 1 + rng.nextInt(600);
+                int density = rng.nextInt(101);
+                byte[] input = new byte[words * 8];
+                for (int i = 0; i < input.length; ++i) {
+                    if (rng.nextInt(100) < density) {
+                        input[i] = (byte) (1 + rng.nextInt(255));
+                    }
+                }
+
+                byte[] expected = referencePack(input);
+
+                // Pack from a native little-endian source on even trials and
+                // from a heap big-endian buffer on odd ones: the writer's
+                // output must not depend on the source buffer's byte order.
+                ByteBuffer source;
+                if (trial % 2 == 0) {
+                    MemorySegment segment = arena.allocate(input.length, Constants.BYTES_PER_WORD);
+                    MemorySegment.copy(input, 0, segment, ValueLayout.JAVA_BYTE, 0, input.length);
+                    source = segment.asByteBuffer();
+                } else {
+                    source = ByteBuffer.wrap(input.clone());
+                }
+
+                MemorySegment outputSegment =
+                    arena.allocate(2L * input.length + 64, Constants.BYTES_PER_WORD);
+                MemorySegmentOutputStream writer = new MemorySegmentOutputStream(outputSegment);
+                new NativePackedOutputStream(writer).write(source);
+
+                int packedLength = writer.buf.position();
+                assertEquals(expected.length, packedLength, "trial " + trial);
+                assertTrue(Arrays.equals(
+                    outputSegment.asSlice(0, packedLength).toArray(ValueLayout.JAVA_BYTE), expected),
+                    "trial " + trial);
+
+                // And the packed bytes must unpack to the original input.
+                MemorySegmentInputStream reader =
+                    new MemorySegmentInputStream(outputSegment.asSlice(0, packedLength));
+                MemorySegment unpacked = arena.allocate(Math.max(input.length, 8), Constants.BYTES_PER_WORD);
+                int n = new NativePackedInputStream(reader)
+                    .read(unpacked.asSlice(0, input.length).asByteBuffer());
+                assertEquals(input.length, n, "trial " + trial);
+                assertTrue(Arrays.equals(
+                    unpacked.asSlice(0, input.length).toArray(ValueLayout.JAVA_BYTE), input),
+                    "trial " + trial);
+            }
+        }
     }
 
     @Test
