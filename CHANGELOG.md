@@ -1,3 +1,10 @@
+## v0.2.0 (unreleased)
+- Split the runtime into extensible modules: `capnp-jvm-core`,
+  `capnp-jvm-serialization` (serialization API), and
+  `capnp-jvm-serialization-bytebuffer` (ByteBuffer implementation).
+- Centralize shared build metadata in the parent POM and manage the project
+  version from a single `<revision>` property (Maven CI-friendly versions).
+
 ## v0.1.16
 - Fix handling of negative pointer offsets.
 - Fix SegmentReader.inInBounds() offset arithmetic.
