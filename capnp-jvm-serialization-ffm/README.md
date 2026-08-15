@@ -112,13 +112,18 @@ The pattern matches the research branch: workloads bounded by message-buffer
 allocation (Eval-shaped) win large; workloads bounded by reader-object
 allocation (CarSales-shaped) stay near-neutral until Valhalla value-class
 readers land. Packed mode deserves a note: a byte-at-a-time packed writer
-pays a liveness/ownership check on every read from a confined arena's buffer
-view, which initially made dense-message packing (CarSales packed) ~20%
-*slower* than heap. `NativePackedOutputStream` therefore packs a word at a
-time — each word is read once as a long and its nonzero bytes are compacted
-with register arithmetic (`Long.compress`, intrinsified on x86) — producing
-identical wire bytes (verified against a reference implementation over
-randomized inputs) while turning that regression into the −18% win above.
+pays a liveness check on every read from a confined arena's buffer view, which
+initially made dense-message packing (CarSales packed) ~20% *slower* than heap.
+`NativePackedOutputStream` therefore packs a word at a time: it reads each word
+once as a long and compacts its nonzero bytes with register arithmetic. Where
+`Long.compress` lowers to a hardware bit-gather (x86-64 PEXT, or aarch64 under
+SVE2) it does the compaction; where `Long.compress` is a scalar software
+fallback, as on Apple and current server aarch64, a branch-free shift path
+compacts instead, chosen once at class load by a VM-flag capability probe. Both
+paths produce identical wire bytes (verified against a reference implementation
+over randomized inputs). The single word-at-a-time read removes the regression
+on its own; on x86 the hardware bit-gather adds the rest of the win, and on
+aarch64 the shift path recovers most of it (the latest aarch64 log below).
 
 ## Benchmark log
 
@@ -182,3 +187,32 @@ So `Long.compress` in `NativePackedOutputStream` runs the `java.lang.Long` softw
 The per-read liveness check on the confined arena buffer view is then no longer hidden by a cheap compaction.
 The eight-register-shift emitter keeps the single `getLong` and drops `Long.compress`; it is the ready fallback for aarch64 parity.
 The non-packed arena wins also shrank to near neutral, because this box runs the allocation-bound cases about 3x faster in absolute terms, so per-iteration arena setup and teardown now dominate the small messages.
+
+### 2026-08-15, macOS 26.5.2 arm64 (Apple M5 Pro, 18 cores), Temurin 25.0.4+7, HEAD 8cfabdb
+
+The shift-path packed writer is active here: the capability probe reads UseSVE=0, so `HAS_FAST_BIT_GATHER` is false.
+30/30 runs exited 0 with no correctness failures reported by the harness.
+`NativeSerializePackedTest` passes 9/9, including the shift gather checked byte-for-byte against the `Long.compress` intrinsic.
+
+| Case | Mode | Compression | Iterations | no-reuse | arena | Δ |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| CarSales | object | none | 100,000 | 2.102 | 2.515 | +19.6% |
+| CarSales | bytes | none | 100,000 | 2.301 | 2.676 | +16.3% |
+| CarSales | bytes | packed | 100,000 | 6.737 | 5.765 | −14.4% |
+| CarSales | client/server | none | 100,000 | 3.554 | 4.453 | +25.3% |
+| CarSales | client/server | packed | 100,000 | 6.608 | 6.670 | +0.9% |
+| CatRank | object | none | 10,000 | 3.128 | 3.681 | +17.7% |
+| CatRank | bytes | none | 10,000 | 3.198 | 3.778 | +18.1% |
+| CatRank | bytes | packed | 10,000 | 5.435 | 5.917 | +8.9% |
+| CatRank | client/server | none | 10,000 | 4.510 | 4.857 | +7.7% |
+| CatRank | client/server | packed | 10,000 | 5.538 | 6.000 | +8.3% |
+| Eval | object | none | 2,000,000 | 4.306 | 4.182 | −2.9% |
+| Eval | bytes | none | 2,000,000 | 4.596 | 4.820 | +4.9% |
+| Eval | bytes | packed | 2,000,000 | 10.682 | 9.341 | −12.6% |
+| Eval | client/server | none | 2,000,000 | 19.980 | 19.802 | −0.9% |
+| Eval | client/server | packed | 2,000,000 | 21.569 | 20.615 | −4.4% |
+
+Note: every packed arena row improved against the dcb5f0e run above, where the scalar `Long.compress` fallback made them +7% to +22% slower than heap.
+CarSales and Eval bytes packed now win with the arena (−14.4%, −12.6%); the client/server packed rows moved to roughly neutral or a small win.
+CatRank keeps a smaller +8% on its denser text words.
+The non-packed rows are unchanged in character from that run, since they do not exercise the packed writer.
