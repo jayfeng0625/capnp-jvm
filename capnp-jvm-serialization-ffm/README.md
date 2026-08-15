@@ -1,11 +1,11 @@
 # capnp-jvm-serialization-ffm
 
-Cap'n Proto serialization built on the Foreign Function & Memory API (FFM,
-JEP 454 — final since JDK 22, on the JDK 25 LTS baseline). This module sits
-alongside `capnp-jvm-serialization-bytebuffer` and implements the same
-interfaces — `BufferedInputStream` / `BufferedOutputStream` from
-`capnp-jvm-serialization` and the `Allocator` seam from `capnp-jvm-core` — so
-the two are drop-in alternatives that produce identical bytes on the wire.
+Cap'n Proto serialization built on the Foreign Function and Memory API (FFM, JEP 454, final since JDK 22, on the JDK 25 LTS baseline).
+FFM supplies four things here: native message storage, deterministic ownership, file mapping, and native stream I/O.
+Scalar Cap'n Proto field access intentionally stays on ByteBuffer views, because that path measured faster than raw `MemorySegment` accessors on JDK 25.
+So FFM owns the buffer and its lifetime, while the existing ByteBuffer accessor reads and writes the fields inside it.
+This module implements the same interfaces as `capnp-jvm-serialization-bytebuffer`: `BufferedInputStream` and `BufferedOutputStream` from `capnp-jvm-serialization`, and `Allocator` from `capnp-jvm-core`.
+The two modules are drop-in alternatives that produce identical bytes on the wire.
 
 ## Design
 
@@ -17,7 +17,7 @@ FFM-idiomatic:
 
 1. **Store natively, in arenas.** Message memory is carved from confined
    `java.lang.foreign.Arena`s (`ArenaAllocator` for building,
-   `NativeMessage` for reading — one arena per message, or one per request
+   `FfmMessage` for reading — one arena per message, or one per request
    scope via the arena-adopting constructor). `Arena.allocate` zero-fills,
    satisfying the wire contract; `close()` frees the native memory
    deterministically, instead of waiting for the GC to run a Cleaner the way
@@ -44,9 +44,9 @@ FFM-idiomatic:
    measured cause of the arena prototype's +14% regression on
    serialization-heavy workloads), and gathering channels receive the segment
    table plus all segments as one vectored write. Stream buffering
-   (`NativeBufferedInputStream` / `NativeBufferedOutputStream`) happens in
+   (`FfmBufferedInputStream` / `FfmBufferedOutputStream`) happens in
    native memory, so kernel-facing reads and writes skip the JDK's internal
-   heap→direct copy. `NativeSerialize.map(path)` goes further and reads
+   heap→direct copy. `FfmSerialize.map(path)` goes further and reads
    nothing at all: the file is mapped through the arena, the OS pages in only
    what the reader touches, 64-bit indexing lifts the 2 GB `ByteBuffer` cap,
    and closing the message unmaps deterministically.
@@ -60,11 +60,11 @@ needed, and the module keeps the zero-third-party-dependency promise
 | FFM module | ByteBuffer module counterpart |
 | --- | --- |
 | `ArenaAllocator` | `DefaultAllocator` (core) |
-| `NativeMessage` | — (deterministic-lifetime reader handle) |
-| `NativeSerialize` | `Serialize` |
-| `NativeSerializePacked` | `SerializePacked` |
-| `NativePackedInputStream` / `NativePackedOutputStream` | `PackedInputStream` / `PackedOutputStream` |
-| `NativeBufferedInputStream` / `NativeBufferedOutputStream` | `BufferedInputStreamWrapper` / `BufferedOutputStreamWrapper` |
+| `FfmMessage` | — (deterministic-lifetime reader handle) |
+| `FfmSerialize` | `Serialize` |
+| `FfmSerializePacked` | `SerializePacked` |
+| `FfmPackedInputStream` / `FfmPackedOutputStream` | `PackedInputStream` / `PackedOutputStream` |
+| `FfmBufferedInputStream` / `FfmBufferedOutputStream` | `BufferedInputStreamWrapper` / `BufferedOutputStreamWrapper` |
 | `MemorySegmentInputStream` / `MemorySegmentOutputStream` | `ArrayInputStream` / `ArrayOutputStream` |
 
 ## Use
@@ -74,17 +74,17 @@ needed, and the module keeps the zero-third-party-dependency promise
 try (ArenaAllocator allocator = new ArenaAllocator()) {
     MessageBuilder message = new MessageBuilder(allocator);
     // ... build ...
-    NativeSerialize.write(channel, message);   // vectored, zero-copy from native segments
+    FfmSerialize.write(channel, message);   // vectored, zero-copy from native segments
 }
 
 // Read a message into native memory:
-try (NativeMessage message = NativeSerialize.read(channel)) {
+try (FfmMessage message = FfmSerialize.read(channel)) {
     Foo.Reader root = message.getRoot(Foo.factory);
     // ...
 }
 
 // Or map a file and never read the parts you don't touch:
-try (NativeMessage message = NativeSerialize.map(path)) {
+try (FfmMessage message = FfmSerialize.map(path)) {
     // ...
 }
 ```
@@ -95,10 +95,13 @@ on the thread that created its allocator, or pass `Arena.ofShared()` /
 
 ## Measured behavior (what to expect where)
 
-Directional wall-clock numbers from this repository's benchmark harness
-(`do_benchmarks.bash` arena modes, JDK 25, shared 4-vCPU box; every
-heap/arena pair measured back to back in one session — trust the signs and
-rough magnitudes, not the digits):
+FFM is not a general-purpose replacement that beats heap ByteBuffer everywhere.
+It wins where message-buffer allocation, deterministic free, native I/O, or file mapping dominate the run.
+It stays near-neutral, or slightly slower, where reader-object allocation or small-message arena setup dominates.
+Scalar field access runs the same ByteBuffer path in both modules, so FFM does not make individual field reads faster.
+
+Directional wall-clock numbers from this repository's benchmark harness follow (`do_benchmarks.bash` arena modes, JDK 25, shared 4-vCPU box).
+Every heap/arena pair ran back to back in one session, so trust the signs and rough magnitudes, not the digits.
 
 | Benchmark | heap | arena | Δ |
 | --- | ---: | ---: | ---: |
@@ -108,22 +111,26 @@ rough magnitudes, not the digits):
 | CarSales bytes | 8.4 s | 9.0 s | +8% |
 | CarSales bytes packed | 19.1 s | 15.5 s | **−18%** |
 
-The pattern matches the research branch: workloads bounded by message-buffer
-allocation (Eval-shaped) win large; workloads bounded by reader-object
-allocation (CarSales-shaped) stay near-neutral until Valhalla value-class
-readers land. Packed mode deserves a note: a byte-at-a-time packed writer
-pays a liveness check on every read from a confined arena's buffer view, which
-initially made dense-message packing (CarSales packed) ~20% *slower* than heap.
-`NativePackedOutputStream` therefore packs a word at a time: it reads each word
-once as a long and compacts its nonzero bytes with register arithmetic. Where
-`Long.compress` lowers to a hardware bit-gather (x86-64 PEXT, or aarch64 under
-SVE2) it does the compaction; where `Long.compress` is a scalar software
-fallback, as on Apple and current server aarch64, a branch-free shift path
-compacts instead, chosen once at class load by a VM-flag capability probe. Both
-paths produce identical wire bytes (verified against a reference implementation
-over randomized inputs). The single word-at-a-time read removes the regression
-on its own; on x86 the hardware bit-gather adds the rest of the win, and on
-aarch64 the shift path recovers most of it (the latest aarch64 log below).
+The pattern matches the research branch.
+Workloads bounded by message-buffer allocation (Eval-shaped) win large.
+Workloads bounded by reader-object allocation (CarSales-shaped) stay near-neutral until Valhalla value-class readers land.
+
+Packed mode needs a separate note, because part of its gain comes from the codec, not from FFM.
+A byte-at-a-time packed writer pays a liveness check on every read from a confined arena's buffer view.
+That check initially made dense-message packing (CarSales packed) about 20% slower than heap.
+`FfmPackedOutputStream` therefore packs a word at a time.
+It reads each word once as a long, then compacts its nonzero bytes with register arithmetic.
+This word-at-a-time rewrite is a SWAR codec change, independent of FFM.
+The heap module's writer could adopt the same technique.
+Where `Long.compress` lowers to a hardware bit-gather (x86-64 PEXT, or aarch64 under SVE2), it does the compaction.
+Where `Long.compress` is a scalar software fallback, as on Apple and current server aarch64, a branch-free shift path compacts instead.
+The code chooses the path once at class load, by a VM-flag capability probe.
+Both paths produce identical wire bytes, verified against a reference implementation over randomized inputs.
+The single word-at-a-time read removes the regression on its own.
+On x86 the hardware bit-gather adds the rest of the win.
+On aarch64 the shift path recovers most of it (the latest aarch64 log below).
+So the packed wins reflect the SWAR/bit-gather writer as much as native storage.
+A fair packed comparison would run the same word-at-a-time codec on the heap module and the FFM module.
 
 ## Benchmark log
 
@@ -159,7 +166,7 @@ FFM module with a fresh confined arena per iteration.
 ### 2026-08-15, macOS 26.5.2 arm64 (Apple M5 Pro, 18 cores), Temurin 25.0.4+7, HEAD dcb5f0e
 
 30/30 runs exited 0 with no correctness failures reported by the harness.
-`NativeSerializePackedTest` passes 7/7 here, so the word-at-a-time packed writer
+`FfmSerializePackedTest` passes 7/7 here, so the word-at-a-time packed writer
 produces identical wire bytes on the scalar `Long.compress` path.
 
 | Case | Mode | Compression | Iterations | no-reuse | arena | Δ |
@@ -183,7 +190,7 @@ produces identical wire bytes on the scalar `Long.compress` path.
 Note: every packed arena row regressed here, by +7% to +22%.
 That is the sign inverse of the x86 run above, where packed arena won by 14% to 24%.
 AArch64 has no scalar PEXT, and this JVM runs with UseSVE=0 (verified with `-XX:+PrintFlagsFinal`), so C2 emits no SVE2 bit-permute either.
-So `Long.compress` in `NativePackedOutputStream` runs the `java.lang.Long` software fallback, not a single hardware bit-gather.
+So `Long.compress` in `FfmPackedOutputStream` runs the `java.lang.Long` software fallback, not a single hardware bit-gather.
 The per-read liveness check on the confined arena buffer view is then no longer hidden by a cheap compaction.
 The eight-register-shift emitter keeps the single `getLong` and drops `Long.compress`; it is the ready fallback for aarch64 parity.
 The non-packed arena wins also shrank to near neutral, because this box runs the allocation-bound cases about 3x faster in absolute terms, so per-iteration arena setup and teardown now dominate the small messages.
@@ -192,7 +199,7 @@ The non-packed arena wins also shrank to near neutral, because this box runs the
 
 The shift-path packed writer is active here: the capability probe reads UseSVE=0, so `HAS_FAST_BIT_GATHER` is false.
 30/30 runs exited 0 with no correctness failures reported by the harness.
-`NativeSerializePackedTest` passes 9/9, including the shift gather checked byte-for-byte against the `Long.compress` intrinsic.
+`FfmSerializePackedTest` passes 9/9, including the shift gather checked byte-for-byte against the `Long.compress` intrinsic.
 
 | Case | Mode | Compression | Iterations | no-reuse | arena | Δ |
 | --- | --- | --- | ---: | ---: | ---: | ---: |

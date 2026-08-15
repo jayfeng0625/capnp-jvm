@@ -30,7 +30,7 @@ import java.nio.channels.WritableByteChannel;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
-public class NativeBufferedOutputStreamTest {
+public class FfmBufferedOutputStreamTest {
 
   /** A channel that consumes at most `maxPerWrite` bytes per write() call. */
   private static final class ShortWritingChannel implements WritableByteChannel {
@@ -70,7 +70,7 @@ public class NativeBufferedOutputStreamTest {
     }
 
     ShortWritingChannel channel = new ShortWritingChannel(3);
-    NativeBufferedOutputStream stream = new NativeBufferedOutputStream(channel);
+    FfmBufferedOutputStream stream = new FfmBufferedOutputStream(channel);
     stream.write(ByteBuffer.wrap(payload));
     stream.flush();
 

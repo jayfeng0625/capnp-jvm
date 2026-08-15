@@ -29,19 +29,19 @@ import org.capnproto.BufferedInputStream;
 import org.capnproto.BufferedOutputStream;
 import org.capnproto.MessageBuilder;
 import org.capnproto.MessageReader;
-import org.capnproto.NativeSerializePacked;
+import org.capnproto.FfmSerializePacked;
 import org.capnproto.ReaderOptions;
 
 public final class PackedFfm implements FfmCompression {
     public void writeBuffered(BufferedOutputStream writer,
                               MessageBuilder message) throws IOException {
-        NativeSerializePacked.write(writer, message);
+        FfmSerializePacked.write(writer, message);
         writer.flush();
     }
 
     public MessageReader newBufferedReader(
         BufferedInputStream inputStream, Arena arena) throws IOException {
-        return NativeSerializePacked.read(inputStream,
+        return FfmSerializePacked.read(inputStream,
                                                         ReaderOptions.DEFAULT_READER_OPTIONS,
                                                         arena);
     }

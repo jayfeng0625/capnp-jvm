@@ -33,8 +33,8 @@ import java.io.FileDescriptor;
 import org.capnproto.ArenaAllocator;
 import org.capnproto.MemorySegmentInputStream;
 import org.capnproto.MemorySegmentOutputStream;
-import org.capnproto.NativeBufferedInputStream;
-import org.capnproto.NativeBufferedOutputStream;
+import org.capnproto.FfmBufferedInputStream;
+import org.capnproto.FfmBufferedOutputStream;
 import org.capnproto.StructFactory;
 import org.capnproto.MessageBuilder;
 import org.capnproto.MessageReader;
@@ -254,10 +254,10 @@ public abstract class TestCase<RequestFactory extends
     public void syncServerArena(RequestFactory requestFactory, ResponseFactory responseFactory,
                                 Compression compression, long iters) throws IOException {
         FfmCompression ffmCompression = FfmCompression.of(compression);
-        NativeBufferedOutputStream outBuffered =
-            new NativeBufferedOutputStream((new FileOutputStream(FileDescriptor.out)).getChannel());
-        NativeBufferedInputStream inBuffered =
-            new NativeBufferedInputStream((new FileInputStream(FileDescriptor.in)).getChannel());
+        FfmBufferedOutputStream outBuffered =
+            new FfmBufferedOutputStream((new FileOutputStream(FileDescriptor.out)).getChannel());
+        FfmBufferedInputStream inBuffered =
+            new FfmBufferedInputStream((new FileInputStream(FileDescriptor.in)).getChannel());
 
         for (int ii = 0; ii < iters; ++ii) {
             try (Arena arena = Arena.ofConfined()) {
@@ -279,10 +279,10 @@ public abstract class TestCase<RequestFactory extends
                                 Compression compression, long iters) throws IOException {
         FfmCompression ffmCompression = FfmCompression.of(compression);
         Common.FastRand rng = new Common.FastRand();
-        NativeBufferedOutputStream outBuffered =
-            new NativeBufferedOutputStream((new FileOutputStream(FileDescriptor.out)).getChannel());
-        NativeBufferedInputStream inBuffered =
-            new NativeBufferedInputStream((new FileInputStream(FileDescriptor.in)).getChannel());
+        FfmBufferedOutputStream outBuffered =
+            new FfmBufferedOutputStream((new FileOutputStream(FileDescriptor.out)).getChannel());
+        FfmBufferedInputStream inBuffered =
+            new FfmBufferedInputStream((new FileInputStream(FileDescriptor.in)).getChannel());
 
         for (int ii = 0; ii < iters; ++ii) {
             try (Arena arena = Arena.ofConfined()) {

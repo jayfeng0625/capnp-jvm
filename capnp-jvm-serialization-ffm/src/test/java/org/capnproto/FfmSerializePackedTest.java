@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-public class NativeSerializePackedTest {
+public class FfmSerializePackedTest {
 
     @Test
     public void testSimplePacking() {
@@ -98,14 +98,14 @@ public class NativeSerializePackedTest {
                 MemorySegment output = arena.allocate(Math.max(packed.length, 1), Constants.BYTES_PER_WORD);
                 MemorySegmentOutputStream writer =
                     new MemorySegmentOutputStream(output.asSlice(0, packed.length));
-                NativePackedOutputStream packedOutputStream = new NativePackedOutputStream(writer);
+                FfmPackedOutputStream packedOutputStream = new FfmPackedOutputStream(writer);
 
                 MemorySegment input = arena.allocate(Math.max(unpacked.length, 1), Constants.BYTES_PER_WORD);
                 MemorySegment.copy(unpacked, 0, input, ValueLayout.JAVA_BYTE, 0, unpacked.length);
                 try {
                     packedOutputStream.write(input.asSlice(0, unpacked.length).asByteBuffer());
                 } catch (IOException e) {
-                    fail("Failed writing to NativePackedOutputStream");
+                    fail("Failed writing to FfmPackedOutputStream");
                 }
 
                 assertTrue(Arrays.equals(
@@ -118,14 +118,14 @@ public class NativeSerializePackedTest {
                 MemorySegment.copy(packed, 0, input, ValueLayout.JAVA_BYTE, 0, packed.length);
                 MemorySegmentInputStream reader =
                     new MemorySegmentInputStream(input.asSlice(0, packed.length));
-                NativePackedInputStream stream = new NativePackedInputStream(reader);
+                FfmPackedInputStream stream = new FfmPackedInputStream(reader);
 
                 MemorySegment output = arena.allocate(Math.max(unpacked.length, 1), Constants.BYTES_PER_WORD);
                 int n = 0;
                 try {
                     n = stream.read(output.asSlice(0, unpacked.length).asByteBuffer());
                 } catch (IOException e) {
-                    fail("Failed reading from NativePackedInputStream");
+                    fail("Failed reading from FfmPackedInputStream");
                 }
 
                 assertEquals(n, unpacked.length);
@@ -140,7 +140,7 @@ public class NativeSerializePackedTest {
     public void read_shouldThrowDecodingExceptionOnEmptyMemorySegmentInputStream() throws IOException {
         byte[] emptyByteArray = {};
         assertThrows(DecodeException.class,
-            () -> NativeSerializePacked.read(
+            () -> FfmSerializePacked.read(
                 new MemorySegmentInputStream(MemorySegment.ofArray(emptyByteArray)),
                 ReaderOptions.DEFAULT_READER_OPTIONS));
     }
@@ -150,7 +150,7 @@ public class NativeSerializePackedTest {
     public void read_shouldThrowDecodingExceptionWhenTryingToReadMoreThanAvailableFromMemorySegmentInputStream() throws IOException {
         byte[] bytes = {17, 0, 127, 0, 0, 0, 0}; //segment0 size of 127 words, which is way larger than the tiny 7 byte input
         assertThrows(DecodeException.class,
-            () -> NativeSerializePacked.read(
+            () -> FfmSerializePacked.read(
                 new MemorySegmentInputStream(MemorySegment.ofArray(bytes)),
                 ReaderOptions.DEFAULT_READER_OPTIONS));
     }
@@ -170,7 +170,7 @@ public class NativeSerializePackedTest {
                                // overrunning segment 0's one-word window
         };
         assertThrows(DecodeException.class,
-            () -> NativeSerializePacked.read(
+            () -> FfmSerializePacked.read(
                 new MemorySegmentInputStream(MemorySegment.ofArray(malformed)),
                 ReaderOptions.DEFAULT_READER_OPTIONS));
     }
@@ -236,17 +236,17 @@ public class NativeSerializePackedTest {
 
     @Test
     public void testTagOf() {
-        assertEquals(0x00, NativePackedOutputStream.tagOf(0x0000000000000000L));
-        assertEquals(0xFF, NativePackedOutputStream.tagOf(0xFFFFFFFFFFFFFFFFL));
-        assertEquals(0x01, NativePackedOutputStream.tagOf(0x00000000000000FFL));
-        assertEquals(0x80, NativePackedOutputStream.tagOf(0x8000000000000000L));
+        assertEquals(0x00, FfmPackedOutputStream.tagOf(0x0000000000000000L));
+        assertEquals(0xFF, FfmPackedOutputStream.tagOf(0xFFFFFFFFFFFFFFFFL));
+        assertEquals(0x01, FfmPackedOutputStream.tagOf(0x00000000000000FFL));
+        assertEquals(0x80, FfmPackedOutputStream.tagOf(0x8000000000000000L));
         // 0x00 byte followed by 0x01: the pattern where the naive SWAR
         // zero-detect ((v - 0x01..) & ~v & 0x80..) reports a false positive.
-        assertEquals(0x02, NativePackedOutputStream.tagOf(0x0000000000000100L));
+        assertEquals(0x02, FfmPackedOutputStream.tagOf(0x0000000000000100L));
         // 0x80 bytes must not read as zero.
-        assertEquals(0xFF, NativePackedOutputStream.tagOf(0x8080808080808080L));
+        assertEquals(0xFF, FfmPackedOutputStream.tagOf(0x8080808080808080L));
         // Mixed: bytes (LE order) 01 00 80 00 FF 00 7F 00 -> bits 0,2,4,6.
-        assertEquals(0x55, NativePackedOutputStream.tagOf(0x007F00FF00800001L));
+        assertEquals(0x55, FfmPackedOutputStream.tagOf(0x007F00FF00800001L));
 
         // Exhaustive per-bit check against a byte-wise oracle.
         Random rng = new Random(7);
@@ -256,24 +256,24 @@ public class NativeSerializePackedTest {
             for (int b = 0; b < 8; ++b) {
                 if (((word >>> (8 * b)) & 0xFF) != 0) expected |= 1 << b;
             }
-            assertEquals(expected, NativePackedOutputStream.tagOf(word), Long.toHexString(word));
+            assertEquals(expected, FfmPackedOutputStream.tagOf(word), Long.toHexString(word));
         }
     }
 
     @Test
     public void testIsFastBitGather() {
         // x86-64: the PEXT / PDEP intrinsic backing Long.compress needs BMI2.
-        assertTrue(NativePackedOutputStream.isFastBitGather("amd64", true, 0));
-        assertTrue(NativePackedOutputStream.isFastBitGather("x86_64", true, 0));
-        assertFalse(NativePackedOutputStream.isFastBitGather("amd64", false, 0));
+        assertTrue(FfmPackedOutputStream.isFastBitGather("amd64", true, 0));
+        assertTrue(FfmPackedOutputStream.isFastBitGather("x86_64", true, 0));
+        assertFalse(FfmPackedOutputStream.isFastBitGather("amd64", false, 0));
         // aarch64: a hardware bit-permute needs SVE2 (UseSVE >= 2). NEON-only
         // and scalar cores fall back, so anything below 2 takes the shift path.
-        assertFalse(NativePackedOutputStream.isFastBitGather("aarch64", false, 0));
-        assertFalse(NativePackedOutputStream.isFastBitGather("aarch64", false, 1));
-        assertTrue(NativePackedOutputStream.isFastBitGather("aarch64", false, 2));
+        assertFalse(FfmPackedOutputStream.isFastBitGather("aarch64", false, 0));
+        assertFalse(FfmPackedOutputStream.isFastBitGather("aarch64", false, 1));
+        assertTrue(FfmPackedOutputStream.isFastBitGather("aarch64", false, 2));
         // Unknown ISA: never assume a fast intrinsic.
-        assertFalse(NativePackedOutputStream.isFastBitGather("riscv64", true, 4));
-        assertFalse(NativePackedOutputStream.isFastBitGather("", false, 0));
+        assertFalse(FfmPackedOutputStream.isFastBitGather("riscv64", true, 4));
+        assertFalse(FfmPackedOutputStream.isFastBitGather("", false, 0));
     }
 
     @Test
@@ -284,10 +284,10 @@ public class NativeSerializePackedTest {
         Random rng = new Random(99);
         for (int i = 0; i < 100_000; ++i) {
             long word = rng.nextLong() & rng.nextLong(); // bias toward zero bytes
-            int tag = NativePackedOutputStream.tagOf(word);
+            int tag = FfmPackedOutputStream.tagOf(word);
             long byteMask = Long.expand(tag, 0x0101010101010101L) * 0xFFL;
             long expected = Long.compress(word, byteMask);
-            long actual = NativePackedOutputStream.compactNonzeroBytes(word, tag);
+            long actual = FfmPackedOutputStream.compactNonzeroBytes(word, tag);
             int meaningful = Integer.bitCount(tag);
             long keep = meaningful >= 8 ? -1L : (1L << (8 * meaningful)) - 1;
             assertEquals(expected & keep, actual & keep, Long.toHexString(word));
@@ -327,7 +327,7 @@ public class NativeSerializePackedTest {
                 MemorySegment outputSegment =
                     arena.allocate(2L * input.length + 64, Constants.BYTES_PER_WORD);
                 MemorySegmentOutputStream writer = new MemorySegmentOutputStream(outputSegment);
-                new NativePackedOutputStream(writer).write(source);
+                new FfmPackedOutputStream(writer).write(source);
 
                 int packedLength = writer.buf.position();
                 assertEquals(expected.length, packedLength, "trial " + trial);
@@ -339,7 +339,7 @@ public class NativeSerializePackedTest {
                 MemorySegmentInputStream reader =
                     new MemorySegmentInputStream(outputSegment.asSlice(0, packedLength));
                 MemorySegment unpacked = arena.allocate(Math.max(input.length, 8), Constants.BYTES_PER_WORD);
-                int n = new NativePackedInputStream(reader)
+                int n = new FfmPackedInputStream(reader)
                     .read(unpacked.asSlice(0, input.length).asByteBuffer());
                 assertEquals(input.length, n, "trial " + trial);
                 assertTrue(Arrays.equals(
@@ -350,7 +350,7 @@ public class NativeSerializePackedTest {
     }
 
     @Test
-    public void testRoundTripThroughNativeBufferedStreams() throws IOException {
+    public void testRoundTripThroughFfmBufferedStreams() throws IOException {
         String greeting = "Hello, packed native world!";
         Path file = Files.createTempFile("capnp-ffm-packed", ".bin");
         try {
@@ -359,12 +359,12 @@ public class NativeSerializePackedTest {
                      file, StandardOpenOption.WRITE)) {
                 MessageBuilder message = new MessageBuilder(allocator);
                 message.setRoot(Text.factory, new Text.Reader(greeting));
-                NativeSerializePacked.writeToUnbuffered(channel, message);
+                FfmSerializePacked.writeToUnbuffered(channel, message);
             }
 
             try (FileChannel channel = FileChannel.open(
                      file, StandardOpenOption.READ);
-                 NativeMessage message = NativeSerializePacked.readFromUnbuffered(channel)) {
+                 FfmMessage message = FfmSerializePacked.readFromUnbuffered(channel)) {
                 assertEquals(greeting, message.getRoot(Text.factory).toString());
             }
         } finally {

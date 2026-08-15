@@ -37,7 +37,7 @@ import java.nio.ByteOrder;
  * the FFM streams so the codec reads its input straight out of native
  * message segments and packs into a native output buffer.
  */
-public final class NativePackedOutputStream implements WritableByteChannel {
+public final class FfmPackedOutputStream implements WritableByteChannel {
 
     private static final long LOW_BITS = 0x0101010101010101L;
     private static final long HIGH_BITS = 0x8080808080808080L;
@@ -99,7 +99,7 @@ public final class NativePackedOutputStream implements WritableByteChannel {
 
     final BufferedOutputStream inner;
 
-    public NativePackedOutputStream(BufferedOutputStream output) {
+    public FfmPackedOutputStream(BufferedOutputStream output) {
         this.inner = output;
     }
 

@@ -48,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class NativeSerializeTest {
+public class FfmSerializeTest {
 
   /**
    * @param arena: segment `i` contains `i` words each set to `i`
@@ -74,14 +74,14 @@ public class NativeSerializeTest {
   private void expectSerializesTo(int exampleSegmentCount, byte[] exampleBytes) throws IOException {
     // ----
     // read via ReadableByteChannel into arena-owned native memory
-    try (NativeMessage message = NativeSerialize.read(
+    try (FfmMessage message = FfmSerialize.read(
              new MemorySegmentInputStream(MemorySegment.ofArray(exampleBytes)))) {
       checkSegmentContents(exampleSegmentCount, message.getReader().arena);
 
       // write back out into a native segment
       try (Arena outputArena = Arena.ofConfined()) {
         MemorySegment output = outputArena.allocate(exampleBytes.length, Constants.BYTES_PER_WORD);
-        NativeSerialize.write(new MemorySegmentOutputStream(output), message.getReader());
+        FfmSerialize.write(new MemorySegmentOutputStream(output), message.getReader());
         assertArrayEquals(exampleBytes, output.toArray(ValueLayout.JAVA_BYTE));
       }
     }
@@ -89,7 +89,7 @@ public class NativeSerializeTest {
     // ------
     // parse in place from a MemorySegment, no copies
     {
-      MessageReader messageReader = NativeSerialize.read(MemorySegment.ofArray(exampleBytes));
+      MessageReader messageReader = FfmSerialize.read(MemorySegment.ofArray(exampleBytes));
       checkSegmentContents(exampleSegmentCount, messageReader.arena);
     }
 
@@ -99,7 +99,7 @@ public class NativeSerializeTest {
       Path file = Files.createTempFile("capnp-ffm-serialize", ".bin");
       try {
         Files.write(file, exampleBytes);
-        try (NativeMessage message = NativeSerialize.map(file)) {
+        try (FfmMessage message = FfmSerialize.map(file)) {
           checkSegmentContents(exampleSegmentCount, message.getReader().arena);
         }
       } finally {
@@ -179,16 +179,16 @@ public class NativeSerializeTest {
               // No padding
               // Segment 0 (empty)
       };
-      Optional<NativeMessage> message =
-          NativeSerialize.tryRead(new MemorySegmentInputStream(MemorySegment.ofArray(input)));
+      Optional<FfmMessage> message =
+          FfmSerialize.tryRead(new MemorySegmentInputStream(MemorySegment.ofArray(input)));
       assertTrue(message.isPresent());
       message.get().close();
     }
 
     // `tryRead` returns an empty optional when given no input
     {
-      Optional<NativeMessage> message =
-          NativeSerialize.tryRead(new MemorySegmentInputStream(MemorySegment.ofArray(new byte[]{})));
+      Optional<FfmMessage> message =
+          FfmSerialize.tryRead(new MemorySegmentInputStream(MemorySegment.ofArray(new byte[]{})));
       assertFalse(message.isPresent());
     }
 
@@ -199,7 +199,7 @@ public class NativeSerializeTest {
               0, 0, 0     // Premature end of stream after 7 bytes
       };
       assertThrows(IOException.class,
-          () -> NativeSerialize.tryRead(new MemorySegmentInputStream(MemorySegment.ofArray(input))));
+          () -> FfmSerialize.tryRead(new MemorySegmentInputStream(MemorySegment.ofArray(input))));
     }
   }
 
@@ -208,7 +208,7 @@ public class NativeSerializeTest {
         byte[] input = {0, 0, 0, 0, -1, -1, -1, -113};
         ReadableByteChannel channel =
             Channels.newChannel(new ByteArrayInputStream(input));
-        assertThrows(DecodeException.class, () -> NativeSerialize.read(channel));
+        assertThrows(DecodeException.class, () -> FfmSerialize.read(channel));
   }
 
   @Test
@@ -218,7 +218,7 @@ public class NativeSerializeTest {
           -1, -1, -1, -113, 0, 0, 0, 0};
         ReadableByteChannel channel =
             Channels.newChannel(new ByteArrayInputStream(input));
-        assertThrows(DecodeException.class, () -> NativeSerialize.read(channel));
+        assertThrows(DecodeException.class, () -> FfmSerialize.read(channel));
   }
 
   @Test
@@ -228,7 +228,7 @@ public class NativeSerializeTest {
           0, 0, 0, 0, 2, 0, 0, 0,
           42, 0, 0, 0, 0, 0, 0, 0};
       assertThrows(DecodeException.class,
-          () -> NativeSerialize.read(MemorySegment.ofArray(input)));
+          () -> FfmSerialize.read(MemorySegment.ofArray(input)));
   }
 
   @Test
@@ -238,8 +238,8 @@ public class NativeSerializeTest {
           1, 0, 0, 0, // Segment 0 contains 1 word
           42, 0, 0, 0, 0, 0, 0, 0
       };
-      NativeMessage message =
-          NativeSerialize.read(new MemorySegmentInputStream(MemorySegment.ofArray(input)));
+      FfmMessage message =
+          FfmSerialize.read(new MemorySegmentInputStream(MemorySegment.ofArray(input)));
       SegmentReader segment = message.getReader().arena.segments.get(0);
       assertEquals(42, segment.buffer.getLong(0));
 
@@ -264,26 +264,26 @@ public class NativeSerializeTest {
               MessageBuilder message = new MessageBuilder(allocator);
               message.setRoot(Text.factory, new Text.Reader(greeting));
 
-              expectedWords = NativeSerialize.computeSerializedSizeInWords(message);
+              expectedWords = FfmSerialize.computeSerializedSizeInWords(message);
 
               // FileChannel is a GatheringByteChannel: this exercises the
               // vectored, all-native write path.
               try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE)) {
-                  NativeSerialize.write(channel, message);
+                  FfmSerialize.write(channel, message);
               }
           }
 
           assertEquals(expectedWords * Constants.BYTES_PER_WORD, Files.size(file));
 
           try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ);
-               NativeMessage message = NativeSerialize.read(channel)) {
+               FfmMessage message = FfmSerialize.read(channel)) {
               assertEquals(greeting, message.getRoot(Text.factory).toString());
           }
 
           // The same bytes, memory-mapped instead of read — and consumed
           // through the byte-view-first Text API: no String is constructed,
           // no text bytes are copied out of the mapped pages.
-          try (NativeMessage message = NativeSerialize.map(file)) {
+          try (FfmMessage message = FfmSerialize.map(file)) {
               Text.Reader text = message.getRoot(Text.factory);
               assertTrue(text.contentEquals(greeting));
               assertTrue(text.contains("native"));
@@ -303,6 +303,6 @@ public class NativeSerializeTest {
         ByteBuffer dummySegmentBuffer = ByteBuffer.allocate(0);
         ByteBuffer[] segments = new ByteBuffer[Integer.MAX_VALUE / 2];
         Arrays.fill(segments, dummySegmentBuffer);
-        assertEquals(NativeSerialize.computeSerializedSizeInWords(segments), (segments.length * 4L + 4) / Constants.BYTES_PER_WORD);
+        assertEquals(FfmSerialize.computeSerializedSizeInWords(segments), (segments.length * 4L + 4) / Constants.BYTES_PER_WORD);
     }
 }

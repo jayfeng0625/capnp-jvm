@@ -33,10 +33,10 @@ import java.nio.ByteBuffer;
  * so both the compressed source and the unpacked destination can live in
  * native memory.
  */
-public final class NativePackedInputStream implements ReadableByteChannel {
+public final class FfmPackedInputStream implements ReadableByteChannel {
     final BufferedInputStream inner;
 
-    public NativePackedInputStream(BufferedInputStream input) {
+    public FfmPackedInputStream(BufferedInputStream input) {
         this.inner = input;
     }
 

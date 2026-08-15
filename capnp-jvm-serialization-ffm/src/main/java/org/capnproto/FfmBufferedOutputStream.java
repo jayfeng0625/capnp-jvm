@@ -41,18 +41,18 @@ import java.nio.channels.WritableByteChannel;
  * {@code BufferedOutputStreamWrapper}). Pass an arena to tie the buffer to a
  * caller-managed scope instead.
  */
-public final class NativeBufferedOutputStream implements BufferedOutputStream {
+public final class FfmBufferedOutputStream implements BufferedOutputStream {
 
     private static final int DEFAULT_BUFFER_BYTES = 8192;
 
     private final WritableByteChannel inner;
     private final ByteBuffer buf;
 
-    public NativeBufferedOutputStream(WritableByteChannel w) {
+    public FfmBufferedOutputStream(WritableByteChannel w) {
         this(w, Arena.ofAuto(), DEFAULT_BUFFER_BYTES);
     }
 
-    public NativeBufferedOutputStream(WritableByteChannel w, Arena arena, int bufferSizeBytes) {
+    public FfmBufferedOutputStream(WritableByteChannel w, Arena arena, int bufferSizeBytes) {
         this.inner = w;
         this.buf = arena.allocate(bufferSizeBytes, Constants.BYTES_PER_WORD)
             .asByteBuffer().order(ByteOrder.LITTLE_ENDIAN);

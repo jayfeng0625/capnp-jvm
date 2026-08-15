@@ -30,7 +30,7 @@ import java.lang.foreign.Arena;
  * {@code IllegalStateException}.
  *
  * <pre>{@code
- * try (NativeMessage message = NativeSerialize.read(channel)) {
+ * try (FfmMessage message = FfmSerialize.read(channel)) {
  *     Foo.Reader foo = message.getRoot(Foo.factory);
  *     // ...
  * } // native memory freed here
@@ -39,13 +39,13 @@ import java.lang.foreign.Arena;
  * <p>Messages read through a confined arena (the default) may only be accessed
  * on the thread that read them.
  */
-public final class NativeMessage implements AutoCloseable {
+public final class FfmMessage implements AutoCloseable {
 
     private final MessageReader reader;
     private final Arena arena;
     private boolean closed = false;
 
-    public NativeMessage(MessageReader reader, Arena arena) {
+    public FfmMessage(MessageReader reader, Arena arena) {
         this.reader = reader;
         this.arena = arena;
     }

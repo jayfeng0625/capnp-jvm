@@ -34,14 +34,14 @@ import java.util.Optional;
  * held in native segments managed by FFM arenas. The packed byte stream is
  * identical to the ByteBuffer module's {@code SerializePacked}.
  */
-public final class NativeSerializePacked {
+public final class FfmSerializePacked {
 
     /**
      * Attempts to read a message from the provided BufferedInputStream with default options. Returns an empty optional
      * if the input stream reached end-of-stream on first read. The returned message owns a confined arena and must be
      * closed to free its native memory.
      */
-    public static Optional<NativeMessage> tryRead(BufferedInputStream input) throws IOException {
+    public static Optional<FfmMessage> tryRead(BufferedInputStream input) throws IOException {
         return tryRead(input, ReaderOptions.DEFAULT_READER_OPTIONS);
     }
 
@@ -50,16 +50,16 @@ public final class NativeSerializePacked {
      * optional if the input stream reached end-of-stream on first read. The returned message owns a confined arena
      * and must be closed to free its native memory.
      */
-    public static Optional<NativeMessage> tryRead(BufferedInputStream input, ReaderOptions options) throws IOException {
-        NativePackedInputStream packedInput = new NativePackedInputStream(input);
-        return NativeSerialize.tryRead(packedInput, options);
+    public static Optional<FfmMessage> tryRead(BufferedInputStream input, ReaderOptions options) throws IOException {
+        FfmPackedInputStream packedInput = new FfmPackedInputStream(input);
+        return FfmSerialize.tryRead(packedInput, options);
     }
 
     /**
      * Reads a message from the provided BufferedInputStream with default options. The returned message owns a
      * confined arena and must be closed to free its native memory.
      */
-    public static NativeMessage read(BufferedInputStream input) throws IOException {
+    public static FfmMessage read(BufferedInputStream input) throws IOException {
         return read(input, ReaderOptions.DEFAULT_READER_OPTIONS);
     }
 
@@ -67,9 +67,9 @@ public final class NativeSerializePacked {
      * Reads a message from the provided BufferedInputStream with the provided options. The returned message owns a
      * confined arena and must be closed to free its native memory.
      */
-    public static NativeMessage read(BufferedInputStream input, ReaderOptions options) throws IOException {
-        NativePackedInputStream packedInput = new NativePackedInputStream(input);
-        return NativeSerialize.read(packedInput, options);
+    public static FfmMessage read(BufferedInputStream input, ReaderOptions options) throws IOException {
+        FfmPackedInputStream packedInput = new FfmPackedInputStream(input);
+        return FfmSerialize.read(packedInput, options);
     }
 
     /**
@@ -77,15 +77,15 @@ public final class NativeSerializePacked {
      * owns the arena: the returned reader is valid until the caller closes it.
      */
     public static MessageReader read(BufferedInputStream input, ReaderOptions options, Arena arena) throws IOException {
-        NativePackedInputStream packedInput = new NativePackedInputStream(input);
-        return NativeSerialize.read(packedInput, options, arena);
+        FfmPackedInputStream packedInput = new FfmPackedInputStream(input);
+        return FfmSerialize.read(packedInput, options, arena);
     }
 
     /**
      * Wraps the provided ReadableByteChannel in a natively-buffered stream and attempts to read a message from it
      * with default options. Returns an empty optional if the channel reached end-of-stream on first read.
      */
-    public static Optional<NativeMessage> tryReadFromUnbuffered(ReadableByteChannel input) throws IOException {
+    public static Optional<FfmMessage> tryReadFromUnbuffered(ReadableByteChannel input) throws IOException {
         return tryReadFromUnbuffered(input, ReaderOptions.DEFAULT_READER_OPTIONS);
     }
 
@@ -93,17 +93,17 @@ public final class NativeSerializePacked {
      * Wraps the provided ReadableByteChannel in a natively-buffered stream and attempts to read a message from it
      * with the provided options. Returns an empty optional if the channel reached end-of-stream on first read.
      */
-    public static Optional<NativeMessage> tryReadFromUnbuffered(ReadableByteChannel input,
+    public static Optional<FfmMessage> tryReadFromUnbuffered(ReadableByteChannel input,
                                                                 ReaderOptions options) throws IOException {
-        NativePackedInputStream packedInput = new NativePackedInputStream(new NativeBufferedInputStream(input));
-        return NativeSerialize.tryRead(packedInput, options);
+        FfmPackedInputStream packedInput = new FfmPackedInputStream(new FfmBufferedInputStream(input));
+        return FfmSerialize.tryRead(packedInput, options);
     }
 
     /**
      * Wraps the provided ReadableByteChannel in a natively-buffered stream and reads a message from it with default
      * options.
      */
-    public static NativeMessage readFromUnbuffered(ReadableByteChannel input) throws IOException {
+    public static FfmMessage readFromUnbuffered(ReadableByteChannel input) throws IOException {
         return readFromUnbuffered(input, ReaderOptions.DEFAULT_READER_OPTIONS);
     }
 
@@ -111,10 +111,10 @@ public final class NativeSerializePacked {
      * Wraps the provided ReadableByteChannel in a natively-buffered stream and reads a message from it with the
      * provided options.
      */
-    public static NativeMessage readFromUnbuffered(ReadableByteChannel input,
+    public static FfmMessage readFromUnbuffered(ReadableByteChannel input,
                                                    ReaderOptions options) throws IOException {
-        NativePackedInputStream packedInput = new NativePackedInputStream(new NativeBufferedInputStream(input));
-        return NativeSerialize.read(packedInput, options);
+        FfmPackedInputStream packedInput = new FfmPackedInputStream(new FfmBufferedInputStream(input));
+        return FfmSerialize.read(packedInput, options);
     }
 
     /**
@@ -122,8 +122,8 @@ public final class NativeSerializePacked {
      */
     public static void write(BufferedOutputStream output,
                              MessageBuilder message) throws IOException {
-        NativePackedOutputStream packedOutputStream = new NativePackedOutputStream(output);
-        NativeSerialize.write(packedOutputStream, message);
+        FfmPackedOutputStream packedOutputStream = new FfmPackedOutputStream(output);
+        FfmSerialize.write(packedOutputStream, message);
     }
 
     /**
@@ -131,8 +131,8 @@ public final class NativeSerializePacked {
      */
     public static void write(BufferedOutputStream output,
                              MessageReader message) throws IOException {
-        NativePackedOutputStream packedOutputStream = new NativePackedOutputStream(output);
-        NativeSerialize.write(packedOutputStream, message);
+        FfmPackedOutputStream packedOutputStream = new FfmPackedOutputStream(output);
+        FfmSerialize.write(packedOutputStream, message);
     }
 
     /**
@@ -140,7 +140,7 @@ public final class NativeSerializePacked {
      */
     public static void writeToUnbuffered(WritableByteChannel output,
                                          MessageBuilder message) throws IOException {
-        NativeBufferedOutputStream buffered = new NativeBufferedOutputStream(output);
+        FfmBufferedOutputStream buffered = new FfmBufferedOutputStream(output);
         write(buffered, message);
         buffered.flush();
     }
@@ -150,7 +150,7 @@ public final class NativeSerializePacked {
      */
     public static void writeToUnbuffered(WritableByteChannel output,
                                          MessageReader message) throws IOException {
-        NativeBufferedOutputStream buffered = new NativeBufferedOutputStream(output);
+        FfmBufferedOutputStream buffered = new FfmBufferedOutputStream(output);
         write(buffered, message);
         buffered.flush();
     }

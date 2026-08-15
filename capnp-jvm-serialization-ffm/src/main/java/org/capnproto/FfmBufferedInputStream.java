@@ -41,18 +41,18 @@ import java.nio.channels.ReadableByteChannel;
  * {@code BufferedInputStreamWrapper}). Pass an arena to tie the buffer to a
  * caller-managed scope instead.
  */
-public final class NativeBufferedInputStream implements BufferedInputStream {
+public final class FfmBufferedInputStream implements BufferedInputStream {
 
     private static final int DEFAULT_BUFFER_BYTES = 8192;
 
     private final ReadableByteChannel inner;
     private final ByteBuffer buf;
 
-    public NativeBufferedInputStream(ReadableByteChannel chan) {
+    public FfmBufferedInputStream(ReadableByteChannel chan) {
         this(chan, Arena.ofAuto(), DEFAULT_BUFFER_BYTES);
     }
 
-    public NativeBufferedInputStream(ReadableByteChannel chan, Arena arena, int bufferSizeBytes) {
+    public FfmBufferedInputStream(ReadableByteChannel chan, Arena arena, int bufferSizeBytes) {
         this.inner = chan;
         this.buf = arena.allocate(bufferSizeBytes, Constants.BYTES_PER_WORD)
             .asByteBuffer().order(ByteOrder.LITTLE_ENDIAN);

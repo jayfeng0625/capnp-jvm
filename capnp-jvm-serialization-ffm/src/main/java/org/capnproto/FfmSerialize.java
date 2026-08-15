@@ -42,7 +42,7 @@ import java.util.Optional;
  * message memory held in native segments managed by FFM arenas (JEP 454).
  *
  * <p>Reading from a channel places all segments in one contiguous native
- * allocation whose lifetime is the returned {@link NativeMessage}; closing it
+ * allocation whose lifetime is the returned {@link FfmMessage}; closing it
  * frees the memory deterministically. {@link #map} goes further and does not
  * read the message at all: the file is mapped into memory and the OS pages in
  * only the parts the reader actually touches.
@@ -57,7 +57,7 @@ import java.util.Optional;
  * on-heap staging copy, and gathering channels receive the segment table and
  * all segments as a single vectored write.
  */
-public final class NativeSerialize {
+public final class FfmSerialize {
 
     static final int MAX_SEGMENT_WORDS = (1 << 28) - 1;
 
@@ -110,7 +110,7 @@ public final class NativeSerialize {
      * if the channel reached end-of-stream on first read. The returned message owns a confined arena and must be
      * closed to free its native memory.
      */
-    public static Optional<NativeMessage> tryRead(ReadableByteChannel bc) throws IOException {
+    public static Optional<FfmMessage> tryRead(ReadableByteChannel bc) throws IOException {
         return tryRead(bc, ReaderOptions.DEFAULT_READER_OPTIONS);
     }
 
@@ -119,7 +119,7 @@ public final class NativeSerialize {
      * optional if the channel reached end-of-stream on first read. The returned message owns a confined arena and
      * must be closed to free its native memory.
      */
-    public static Optional<NativeMessage> tryRead(ReadableByteChannel bc, ReaderOptions options) throws IOException {
+    public static Optional<FfmMessage> tryRead(ReadableByteChannel bc, ReaderOptions options) throws IOException {
         Arena arena = Arena.ofConfined();
         try {
             Optional<MessageReader> reader = tryRead(bc, options, arena);
@@ -127,7 +127,7 @@ public final class NativeSerialize {
                 arena.close();
                 return Optional.empty();
             }
-            return Optional.of(new NativeMessage(reader.get(), arena));
+            return Optional.of(new FfmMessage(reader.get(), arena));
         } catch (Throwable e) {
             arena.close();
             throw e;
@@ -138,7 +138,7 @@ public final class NativeSerialize {
      * Reads a message from the provided ReadableByteChannel with default options. The returned message owns a
      * confined arena and must be closed to free its native memory.
      */
-    public static NativeMessage read(ReadableByteChannel bc) throws IOException {
+    public static FfmMessage read(ReadableByteChannel bc) throws IOException {
         return read(bc, ReaderOptions.DEFAULT_READER_OPTIONS);
     }
 
@@ -146,10 +146,10 @@ public final class NativeSerialize {
      * Reads a message from the provided ReadableByteChannel with the provided options. The returned message owns a
      * confined arena and must be closed to free its native memory.
      */
-    public static NativeMessage read(ReadableByteChannel bc, ReaderOptions options) throws IOException {
+    public static FfmMessage read(ReadableByteChannel bc, ReaderOptions options) throws IOException {
         Arena arena = Arena.ofConfined();
         try {
-            return new NativeMessage(read(bc, options, arena), arena);
+            return new FfmMessage(read(bc, options, arena), arena);
         } catch (Throwable e) {
             arena.close();
             throw e;
@@ -333,7 +333,7 @@ public final class NativeSerialize {
      * only the parts of the message the reader touches. The returned message owns the mapping and must be closed to
      * unmap it deterministically.
      */
-    public static NativeMessage map(Path path) throws IOException {
+    public static FfmMessage map(Path path) throws IOException {
         return map(path, ReaderOptions.DEFAULT_READER_OPTIONS);
     }
 
@@ -342,11 +342,11 @@ public final class NativeSerialize {
      * pages in only the parts of the message the reader touches. The returned message owns the mapping and must be
      * closed to unmap it deterministically.
      */
-    public static NativeMessage map(Path path, ReaderOptions options) throws IOException {
+    public static FfmMessage map(Path path, ReaderOptions options) throws IOException {
         Arena arena = Arena.ofConfined();
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
             // The mapping stays valid after the channel is closed.
-            return new NativeMessage(map(channel, 0, channel.size(), options, arena), arena);
+            return new FfmMessage(map(channel, 0, channel.size(), options, arena), arena);
         } catch (Throwable e) {
             arena.close();
             throw e;
