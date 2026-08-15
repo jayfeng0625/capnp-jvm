@@ -27,6 +27,7 @@ import java.lang.foreign.Arena;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -84,6 +85,10 @@ public class ArenaAllocatorTest {
 
     // Touching a segment after close must throw, not read freed memory.
     assertThrows(IllegalStateException.class, () -> segment.getLong(0));
+
+    // AutoCloseable convention: closing again must be a no-op, not a throw
+    // (e.g. an early manual close inside try-with-resources).
+    assertDoesNotThrow(allocator::close);
   }
 
   @Test

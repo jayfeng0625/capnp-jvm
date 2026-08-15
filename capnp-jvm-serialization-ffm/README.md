@@ -37,7 +37,9 @@ FFM-idiomatic:
    improves.
 
 3. **Serialize natively end to end.** Reading from a channel places all
-   segments in one contiguous native allocation, filled in a single pass.
+   segments in one contiguous native allocation, filled segment by segment
+   (per-segment reads keep the packed decoder's boundary validation
+   identical to the ByteBuffer module's).
    Writing hands the channel direct buffers (no on-heap staging hop — the
    measured cause of the arena prototype's +14% regression on
    serialization-heavy workloads), and gathering channels receive the segment

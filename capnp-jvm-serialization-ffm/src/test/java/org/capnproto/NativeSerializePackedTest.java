@@ -153,6 +153,26 @@ public class NativeSerializePackedTest {
     }
 
     @Test
+    @Timeout(value = 1000, unit = TimeUnit.MILLISECONDS)
+    public void read_shouldRejectZeroRunSpanningSegmentBoundary() {
+        // A 2-segment message (seg0 = 1 zero word, seg1 = 2 zero words) whose
+        // body is packed as a single zero-run spanning both segments. The
+        // packed format requires runs to end cleanly on segment boundaries,
+        // and the ByteBuffer module rejects this stream with a
+        // DecodeException; the FFM module must reject it identically.
+        byte[] malformed = {
+            0x11, 1, 1,        // header word 0: segment count-1 = 1, seg0 size = 1
+            0x01, 2,           // header word 1: seg1 size = 2 (+ padding)
+            0x00, 0x02         // body: zero word + run of 2 more = 24 bytes,
+                               // overrunning segment 0's one-word window
+        };
+        assertThrows(DecodeException.class,
+            () -> NativeSerializePacked.read(
+                new MemorySegmentInputStream(MemorySegment.ofArray(malformed)),
+                ReaderOptions.DEFAULT_READER_OPTIONS));
+    }
+
+    @Test
     public void testRoundTripThroughNativeBufferedStreams() throws IOException {
         String greeting = "Hello, packed native world!";
         Path file = Files.createTempFile("capnp-ffm-packed", ".bin");

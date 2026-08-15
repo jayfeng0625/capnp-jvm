@@ -72,8 +72,13 @@ public final class ArenaAllocator implements Allocator, AutoCloseable {
 
     private final Arena arena;
     private final boolean ownsArena;
+    private boolean closed = false;
 
-    // (minimum) number of bytes in the next allocation, mirroring DefaultAllocator
+    // (minimum) number of bytes in the next allocation. Defaults to the
+    // suggested first-segment size in bytes — the same first segment that
+    // `new MessageBuilder()` produces. (Note: this intentionally differs
+    // from DefaultAllocator's default, which treats the suggested word
+    // count as a byte count and starts at 1024 bytes.)
     private int nextSize = BuilderArena.SUGGESTED_FIRST_SEGMENT_WORDS * Constants.BYTES_PER_WORD;
 
     public AllocationStrategy allocationStrategy = AllocationStrategy.GROW_HEURISTICALLY;
@@ -144,10 +149,12 @@ public final class ArenaAllocator implements Allocator, AutoCloseable {
     /**
      * Frees the native memory of every segment allocated by this allocator,
      * unless the backing arena was supplied by (and thus belongs to) the caller.
+     * Idempotent.
      */
     @Override
     public void close() {
-        if (this.ownsArena) {
+        if (this.ownsArena && !this.closed) {
+            this.closed = true;
             this.arena.close();
         }
     }

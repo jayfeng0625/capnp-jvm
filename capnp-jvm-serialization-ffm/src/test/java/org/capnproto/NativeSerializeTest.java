@@ -42,6 +42,7 @@ import java.util.Arrays;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -247,6 +248,10 @@ public class NativeSerializeTest {
       // The arena is closed: touching the message's memory must throw, not
       // read freed memory.
       assertThrows(IllegalStateException.class, () -> segment.buffer.getLong(0));
+
+      // AutoCloseable convention: a second close must be a no-op, not a
+      // throw (e.g. an early manual close inside try-with-resources).
+      assertDoesNotThrow(message::close);
   }
 
   @Test

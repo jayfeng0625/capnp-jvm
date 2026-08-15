@@ -252,14 +252,12 @@ public final class NativeSerialize {
             offsetWords += sizeWords;
         }
 
-        long totalBytes = totalWords * Constants.BYTES_PER_WORD;
-        if (totalBytes <= Integer.MAX_VALUE) {
-            // One pass over the whole message body, straight into native memory.
-            fillBuffer(viewOf(body), bc);
-        } else {
-            for (ByteBuffer slice : segmentSlices) {
-                fillBuffer(slice.duplicate(), bc);
-            }
+        // Fill segment by segment (not the whole body in one read): a packed
+        // channel validates that runs end cleanly on the boundary of each
+        // read, so per-segment reads must match the ByteBuffer module's
+        // accept/reject behavior exactly.
+        for (ByteBuffer slice : segmentSlices) {
+            fillBuffer(slice.duplicate(), bc);
         }
 
         return new MessageReader(segmentSlices, options);

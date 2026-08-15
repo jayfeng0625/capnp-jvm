@@ -43,6 +43,7 @@ public final class NativeMessage implements AutoCloseable {
 
     private final MessageReader reader;
     private final Arena arena;
+    private boolean closed = false;
 
     public NativeMessage(MessageReader reader, Arena arena) {
         this.reader = reader;
@@ -57,9 +58,12 @@ public final class NativeMessage implements AutoCloseable {
         return this.reader.getRoot(factory);
     }
 
-    /** Frees the native memory holding this message's segments. */
+    /** Frees the native memory holding this message's segments. Idempotent. */
     @Override
     public void close() {
-        this.arena.close();
+        if (!this.closed) {
+            this.closed = true;
+            this.arena.close();
+        }
     }
 }

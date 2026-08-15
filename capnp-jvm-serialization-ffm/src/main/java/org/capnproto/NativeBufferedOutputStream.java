@@ -117,7 +117,11 @@ public final class NativeBufferedOutputStream implements BufferedOutputStream {
         int pos = this.buf.position();
         this.buf.rewind();
         this.buf.limit(pos);
-        this.inner.write(this.buf);
+        // A channel may consume fewer bytes than requested per call; keep
+        // writing until the buffer is drained so no tail is dropped.
+        while (this.buf.hasRemaining()) {
+            this.inner.write(this.buf);
+        }
         this.buf.clear();
     }
 }
